@@ -39,7 +39,7 @@ def field_for_header(header: str) -> str:
     for row in RESPONSE_FIELDS:
         if row.get("deleted"):
             continue
-        if row.get("name") == header and row.get("field"):
+        if header in {row.get("name"), row.get("local_name")} and row.get("field"):
             return str(row["field"])
     return _fallback_header_name(header)
 

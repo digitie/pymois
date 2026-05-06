@@ -9,6 +9,8 @@
 - localdata 인허가정보 파일 다운로드 195개 카탈로그 추가
 - `LocalDataFileClient` 다운로드/로드 API 추가
 - CP949 CSV, 날짜/시각, 숫자, EPSG:5174 좌표를 Python 타입과 WGS84로 변환
+- Pydantic, SQLAlchemy 2, GeoAlchemy2 기반 PostgreSQL/PostGIS 적재 모델 추가
+- 법정동코드, 도로명코드, 건물관리번호 연계 후보 문서화
 - 여행 플래너 활용 아키텍처, DB 스키마, UPSERT 기반 증분 동기화 문서 추가
 - API/파일/응답변수/증분 OpenAPI 신청 링크 목록 문서화
 - 네트워크 없는 단위 테스트 추가

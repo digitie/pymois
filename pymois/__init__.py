@@ -14,6 +14,19 @@ from .catalogs import (
     list_response_fields,
 )
 from .client import MoisClient
+from .db import (
+    Base,
+    BatchSyncLog,
+    PlaceDetail,
+    PlaceMaster,
+    PlaceRecord,
+    build_place_models,
+    create_postgis_schema,
+    infer_domain_category,
+    record_to_place_record,
+    upsert_place,
+    upsert_places,
+)
 from .exceptions import (
     MoisAuthError,
     MoisCatalogError,
@@ -52,11 +65,19 @@ __all__ = [
     "MoisServerError",
     "OpenApiEndpoint",
     "OpenApiService",
+    "PlaceDetail",
+    "PlaceMaster",
+    "PlaceRecord",
     "ResponseField",
+    "Base",
+    "BatchSyncLog",
+    "build_place_models",
+    "create_postgis_schema",
     "get_file_download",
     "get_incremental_openapi_endpoint",
     "get_openapi_service",
     "get_response_field",
+    "infer_domain_category",
     "list_file_downloads",
     "list_incremental_openapi_endpoints",
     "list_openapi_endpoints",
@@ -64,4 +85,7 @@ __all__ = [
     "list_response_fields",
     "load_records_from_bytes",
     "load_records_from_text",
+    "record_to_place_record",
+    "upsert_place",
+    "upsert_places",
 ]

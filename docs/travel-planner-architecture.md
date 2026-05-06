@@ -29,6 +29,8 @@ PDF는 인허가정보 195종과 생활편의정보 14종, 총 209종을 여행 
 
 195개 업종은 공통 필드와 업종별 특수 필드가 섞여 있습니다. 모든 필드를 하나의 고정 테이블에 넣으면 대부분의 칼럼이 비거나, 업종이 늘 때마다 스키마 변경이 필요해집니다. PDF는 PostgreSQL/PostGIS 기반의 마스터-디테일 + JSONB 구조를 권장합니다.
 
+이 구조는 `pymois.db`의 `PlaceMaster`, `PlaceDetail`, `BatchSyncLog` ORM 모델과 [PostgreSQL/PostGIS DB 적재](database.md) 문서에 구현되어 있습니다.
+
 ### `tb_place_master`
 
 검색, 필터링, 공간 인덱싱에 필요한 공통 속성만 둡니다.

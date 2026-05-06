@@ -7,6 +7,7 @@ from pymois.convert import KST, convert_value, field_for_header, to_date, to_dat
 
 def test_field_for_header_uses_response_mapping_and_aliases() -> None:
     assert field_for_header("관리번호") == "MNG_NO"
+    assert field_for_header("도로명전체주소") == "ROAD_NM_ADDR"
     assert field_for_header("좌표정보(X)") == "CRD_INFO_X"
     assert field_for_header("전화번호") == "TELNO"
 

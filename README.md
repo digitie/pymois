@@ -13,6 +13,7 @@
 - localdata CSV 다운로드와 Python 객체 리스트 로드
 - CP949 CSV, 날짜/시각, 숫자, EPSG:5174 좌표를 자동 변환
 - EPSG:5174 좌표를 WGS84 경도/위도로 추가 제공
+- Pydantic, SQLAlchemy 2, GeoAlchemy2 기반 PostgreSQL/PostGIS 적재 모델 제공
 - 네트워크 없는 단위 테스트와 실제 호출용 live 테스트 분리 가능
 
 ## 설치
@@ -124,6 +125,25 @@ CSV 원본의 `좌표정보(X)`, `좌표정보(Y)`는 EPSG:5174로 보존하고,
 records = files.load("hospitals", org_code="3000000")  # 서울종로구
 ```
 
+## DB 적재
+
+PostgreSQL/PostGIS에 저장할 때는 공통 검색 필드를 마스터 테이블에, 업종별 특수 필드를 JSONB 상세 테이블에 분리합니다.
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from pymois import LocalDataFileClient, create_postgis_schema, upsert_places
+
+engine = create_engine("postgresql+psycopg://user:password@localhost:5432/mois")
+create_postgis_schema(engine)
+
+records = LocalDataFileClient().load_hospitals()
+
+with Session(engine) as session:
+    upsert_places(session, records, commit=True)
+```
+
 ## 목록 확인
 
 API 종류가 많기 때문에 목록 확인 함수를 별도로 제공합니다. `application_url`은 공공데이터포털 활용신청 페이지입니다.
@@ -147,6 +167,7 @@ downloads = list_file_downloads()
 - [API 및 파일 다운로드 목록](docs/api-list.md)
 - [증분 OpenAPI 목록과 신청 링크](docs/incremental-openapi.md)
 - [파일 다운로드와 로드 API](docs/file-downloads.md)
+- [PostgreSQL/PostGIS DB 적재](docs/database.md)
 - [응답변수 매핑표](docs/response-fields.md)
 - [여행 플래너 활용 아키텍처](docs/travel-planner-architecture.md)
 - [구현 메모](mois-api.md)

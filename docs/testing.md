@@ -20,6 +20,7 @@ python -m mypy pymois
 - JSON/XML 응답 파싱과 resultCode 예외 매핑
 - localdata CSV 로드: CP949, 날짜, KST 시각, 숫자, 좌표 변환
 - 동적 편의 함수: `get_hospitals()`, `get_updated_hospitals()`, `load_hospitals()` 계열
+- DB 적재 모델: Pydantic 변환, SQLAlchemy 2 메타데이터, PostGIS geometry 컬럼, JSONB 상세 데이터
 
 ## 실제 호출 테스트를 추가할 때
 
