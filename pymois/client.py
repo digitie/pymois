@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
+from datetime import date, datetime
 from typing import Any
 
 from requests import RequestException
@@ -138,6 +139,101 @@ class MoisClient:
             if max_pages is not None and page_no > max_pages:
                 return
 
+    def iter_updated(
+        self,
+        slug: str,
+        since: date | datetime | str,
+        *,
+        source_modified: bool = False,
+        num_of_rows: int = 100,
+        params: Mapping[str, Any] | None = None,
+        max_pages: int | None = None,
+    ) -> Iterator[Mapping[str, Any]]:
+        """증분 변경분을 순회합니다.
+
+        기본값은 개방데이터 갱신시점(`DAT_UPDT_PNT`) 기준입니다. 원천데이터의
+        최종수정시점만 기준으로 삼으려면 `source_modified=True`를 사용합니다.
+        """
+
+        field = "LAST_MDFCN_PNT" if source_modified else "DAT_UPDT_PNT"
+        return self.iter_records(
+            slug,
+            num_of_rows=num_of_rows,
+            conditions=[Condition(field, "GTE", _timestamp_param(since))],
+            params=params,
+            max_pages=max_pages,
+        )
+
+    def get_updated(
+        self,
+        slug: str,
+        since: date | datetime | str,
+        *,
+        source_modified: bool = False,
+        num_of_rows: int = 100,
+        params: Mapping[str, Any] | None = None,
+        max_pages: int | None = None,
+    ) -> list[Mapping[str, Any]]:
+        """증분 변경분을 목록으로 반환합니다."""
+
+        return list(
+            self.iter_updated(
+                slug,
+                since,
+                source_modified=source_modified,
+                num_of_rows=num_of_rows,
+                params=params,
+                max_pages=max_pages,
+            )
+        )
+
+    def iter_history_at(
+        self,
+        slug: str,
+        base_date: date | str,
+        *,
+        org_code: str | None = None,
+        num_of_rows: int = 100,
+        params: Mapping[str, Any] | None = None,
+        max_pages: int | None = None,
+    ) -> Iterator[Mapping[str, Any]]:
+        """특정 기준일자의 이력 데이터를 순회합니다."""
+
+        conditions: list[Condition] = [Condition("BASE_DATE", "EQ", _date_param(base_date))]
+        if org_code:
+            conditions.append(Condition("OPN_ATMY_GRP_CD", "EQ", org_code))
+        return self.iter_records(
+            slug,
+            kind="history",
+            num_of_rows=num_of_rows,
+            conditions=conditions,
+            params=params,
+            max_pages=max_pages,
+        )
+
+    def get_history_at(
+        self,
+        slug: str,
+        base_date: date | str,
+        *,
+        org_code: str | None = None,
+        num_of_rows: int = 100,
+        params: Mapping[str, Any] | None = None,
+        max_pages: int | None = None,
+    ) -> list[Mapping[str, Any]]:
+        """특정 기준일자의 이력 데이터를 목록으로 반환합니다."""
+
+        return list(
+            self.iter_history_at(
+                slug,
+                base_date,
+                org_code=org_code,
+                num_of_rows=num_of_rows,
+                params=params,
+                max_pages=max_pages,
+            )
+        )
+
     def __getattr__(self, name: str) -> Any:
         """`get_hospitals()`처럼 slug 기반 편의 메서드를 동적으로 제공합니다."""
 
@@ -183,6 +279,30 @@ def _condition_params(conditions: Mapping[str, Any] | Iterable[Condition] | None
             params[f"cond[{field}::{operator}]"] = actual_value
         return params
     return {condition.param_name(): condition.value for condition in conditions}
+
+
+def _timestamp_param(value: date | datetime | str) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%Y%m%d%H%M%S")
+    if isinstance(value, date):
+        return value.strftime("%Y%m%d000000")
+    text = str(value).strip()
+    digits = "".join(char for char in text if char.isdigit())
+    if len(digits) == 8:
+        return f"{digits}000000"
+    if len(digits) == 14:
+        return digits
+    raise ValueError("since must be YYYYMMDD, YYYYMMDDHHMMSS, date, or datetime")
+
+
+def _date_param(value: date | str) -> str:
+    if isinstance(value, date):
+        return value.strftime("%Y%m%d")
+    text = str(value).strip()
+    digits = "".join(char for char in text if char.isdigit())
+    if len(digits) != 8:
+        raise ValueError("base_date must be YYYYMMDD or date")
+    return digits
 
 
 def _parse_openapi_response(response: Any, *, page_no: int, num_of_rows: int) -> MoisResponse:

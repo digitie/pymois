@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 import pytest
@@ -92,6 +93,56 @@ def test_dynamic_getter_uses_slug_name() -> None:
     )
     client = MoisClient("KEY", session=session)
     assert client.get_hospitals() == [{"MNG_NO": "A1"}]
+
+
+def test_incremental_update_helper_uses_dat_updt_pnt_by_default() -> None:
+    payload = {
+        "response": {
+            "header": {"resultCode": "00"},
+            "body": {"items": {"item": []}},
+        }
+    }
+    session = FakeSession(
+        FakeResponse(payload=payload, headers={"Content-Type": "application/json"})
+    )
+    client = MoisClient("KEY", session=session)
+    assert client.get_updated("hospitals", datetime(2026, 3, 1, 1, 2, 3)) == []
+    _, kwargs = session.calls[0]
+    assert kwargs["params"]["cond[DAT_UPDT_PNT::GTE]"] == "20260301010203"
+
+
+def test_incremental_update_helper_can_use_source_modified_timestamp() -> None:
+    payload = {
+        "response": {
+            "header": {"resultCode": "00"},
+            "body": {"items": {"item": []}},
+        }
+    }
+    session = FakeSession(
+        FakeResponse(payload=payload, headers={"Content-Type": "application/json"})
+    )
+    client = MoisClient("KEY", session=session)
+    list(client.iter_updated("hospitals", "2026-03-01", source_modified=True))
+    _, kwargs = session.calls[0]
+    assert kwargs["params"]["cond[LAST_MDFCN_PNT::GTE]"] == "20260301000000"
+
+
+def test_history_at_helper_builds_base_date_and_org_code_conditions() -> None:
+    payload = {
+        "response": {
+            "header": {"resultCode": "00"},
+            "body": {"items": {"item": []}},
+        }
+    }
+    session = FakeSession(
+        FakeResponse(payload=payload, headers={"Content-Type": "application/json"})
+    )
+    client = MoisClient("KEY", session=session)
+    assert client.get_history_at("hospitals", date(2026, 1, 1), org_code="3000000") == []
+    url, kwargs = session.calls[0]
+    assert url.endswith("/hospitals/history")
+    assert kwargs["params"]["cond[BASE_DATE::EQ]"] == "20260101"
+    assert kwargs["params"]["cond[OPN_ATMY_GRP_CD::EQ]"] == "3000000"
 
 
 def test_xml_response_parsing() -> None:

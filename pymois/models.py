@@ -153,6 +153,21 @@ class LocalDataRecord:
             ),
         )
 
+    @property
+    def is_open(self) -> bool | None:
+        """영업/정상 상태이면 True, 폐업/취소 계열이면 False를 반환합니다."""
+
+        if self.business_status_code == "01":
+            return True
+        if self.business_status_code in {"02", "03", "04"}:
+            return False
+        if self.business_status_name:
+            if "폐업" in self.business_status_name or "취소" in self.business_status_name:
+                return False
+            if "영업" in self.business_status_name or "정상" in self.business_status_name:
+                return True
+        return None
+
 
 def _str_or_none(value: Any) -> str | None:
     if value is None:

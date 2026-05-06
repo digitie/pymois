@@ -56,6 +56,30 @@ history = client.get_hospitals_history(
 )
 ```
 
+증분 동기화와 특정 시점 이력조회는 별도 편의 메서드를 사용할 수 있습니다.
+
+```python
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+changed = client.get_updated(
+    "hospitals",
+    datetime(2026, 5, 5, 0, 0, 0, tzinfo=ZoneInfo("Asia/Seoul")),
+)
+
+source_changed = client.get_updated(
+    "hospitals",
+    "20260505000000",
+    source_modified=True,
+)
+
+history_at = client.get_history_at(
+    "hospitals",
+    "20260101",
+    org_code="3000000",
+)
+```
+
 환경변수도 사용할 수 있습니다.
 
 ```bash
@@ -106,6 +130,7 @@ downloads = list_file_downloads()
 - [API 및 파일 다운로드 목록](docs/api-list.md)
 - [파일 다운로드와 로드 API](docs/file-downloads.md)
 - [응답변수 매핑표](docs/response-fields.md)
+- [여행 플래너 활용 아키텍처](docs/travel-planner-architecture.md)
 - [구현 메모](mois-api.md)
 - [반복 실수 방지](docs/repeated-mistakes.md)
 - [테스트 기준](docs/testing.md)

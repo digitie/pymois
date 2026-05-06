@@ -22,6 +22,7 @@ def test_load_records_from_text_converts_common_python_types() -> None:
     assert record.service_slug == "hospitals"
     assert record.category == "건강"
     assert record.business_name == "포레스트병원"
+    assert record.is_open is True
     assert record.license_date == date(2025, 2, 28)
     assert record.updated_at == datetime(2026, 4, 30, 22, 30, 12, tzinfo=ZoneInfo("Asia/Seoul"))
     assert record.data["SCKBD_CNT"] == 92
@@ -29,6 +30,15 @@ def test_load_records_from_text_converts_common_python_types() -> None:
     assert 126.99 < record.coordinates.lon < 127.01
     assert 37.57 < record.coordinates.lat < 37.58
     assert record.data["WGS84_LON"] == record.coordinates.lon
+
+
+def test_local_data_record_detects_closed_status() -> None:
+    text = (
+        "관리번호,인허가일자,영업상태코드,영업상태명,사업장명\n"
+        "PHMA2,2020-01-01,03,폐업,닫은병원\n"
+    )
+    record = load_records_from_text(text, slug="hospitals")[0]
+    assert record.is_open is False
 
 
 def test_load_records_from_bytes_detects_cp949() -> None:
