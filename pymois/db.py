@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
@@ -143,7 +145,7 @@ class PlaceRecord(BaseModel):
         coords = record.coordinates
         return cls(
             service_slug=record.service_slug or "",
-            mng_no=record.management_number,
+            mng_no=_record_management_key(record),
             category=category,
             title=title,
             domain_category=domain_category or infer_domain_category(category, title),
@@ -555,3 +557,17 @@ def _float_value(value: object) -> float | None:
         return float(str(value).strip())
     except ValueError:
         return None
+
+
+def _record_management_key(record: LocalDataRecord) -> str:
+    if record.management_number:
+        return record.management_number
+    payload = {
+        "service_slug": record.service_slug,
+        "category": record.category,
+        "title": record.title,
+        "raw": dict(record.raw),
+    }
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:32]
+    return f"missing-mng-no-{digest}"

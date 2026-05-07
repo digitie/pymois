@@ -65,7 +65,7 @@ def write_api_list(root: Path) -> None:
         lines.append(
             f"| {esc(row['category'])} | {esc(row['name'])} | `{slug}` | "
             f"`{esc(row['download_url'])}` | "
-            f"`files.download_{slug}(path)`, `files.load_{slug}()` |"
+            f"`files.download_{slug}(path)`, `files.load_{slug}()`, `files.iter_{slug}()` |"
         )
 
     lines.append("")
@@ -235,6 +235,16 @@ def write_file_downloads(root: Path) -> None:
     lines.append("print(first.business_name)")
     lines.append("print(first.license_date)")
     lines.append("print(first.coordinates.lon, first.coordinates.lat)")
+    lines.append("print(first.coordinates.wgs84_point.as_tuple())  # (lon, lat)")
+    lines.append("```")
+    lines.append("")
+    lines.append(
+        "대용량 업종은 전체 목록을 메모리에 올리는 `load()`보다 스트리밍 API를 사용합니다."
+    )
+    lines.append("")
+    lines.append("```python")
+    lines.append("for record in files.iter_hospitals():")
+    lines.append("    print(record.management_number, record.business_name)")
     lines.append("```")
     lines.append("")
     lines.append("## 지역별 다운로드")
@@ -257,19 +267,24 @@ def write_file_downloads(root: Path) -> None:
     lines.append("| `NUMBER` 필드와 면적/수량 계열 | `int` 또는 `float` |")
     lines.append(
         "| `좌표정보(X/Y)` | 원본 `CRD_INFO_X/Y` float + "
-        "`WGS84_LON/LAT` + `Coordinate` 객체 |"
+        "`WGS84_LON/LAT` + `Coordinate`, `KatecPoint`, `Wgs84Point` 값 객체 |"
     )
     lines.append("| 빈 문자열/공백 | `None` |")
     lines.append("")
+    lines.append(
+        "좌표 순서는 KATEC/EPSG:5174가 `(x, y)`, WGS84/EPSG:4326이 `(lon, lat)`입니다. "
+        "자세한 타입은 [타입과 좌표 값 객체](types-and-coordinates.md)를 봅니다."
+    )
+    lines.append("")
     lines.append("## 전체 다운로드 함수 목록")
     lines.append("")
-    lines.append("| 분류 | 업종 | slug | 로드 함수 | 다운로드 함수 |")
-    lines.append("|---|---|---|---|---|")
+    lines.append("| 분류 | 업종 | slug | 로드 함수 | 스트리밍 함수 | 다운로드 함수 |")
+    lines.append("|---|---|---|---|---|---|")
     for row in license_downloads:
         slug = row["slug"]
         lines.append(
             f"| {esc(row['category'])} | {esc(row['name'])} | `{slug}` | "
-            f"`files.load_{slug}()` | `files.download_{slug}(path)` |"
+            f"`files.load_{slug}()` | `files.iter_{slug}()` | `files.download_{slug}(path)` |"
         )
     (root / "file-downloads.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 

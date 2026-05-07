@@ -119,6 +119,13 @@ print(first.coordinates.lon, first.coordinates.lat)
 print(first.coordinates.wgs84_point.as_tuple())  # (lon, lat)
 ```
 
+대용량 업종은 전체 목록을 만들지 않는 스트리밍 API를 사용합니다.
+
+```python
+for record in files.iter_hospitals():
+    print(record.management_number, record.business_name)
+```
+
 CSV 원본의 `좌표정보(X)`, `좌표정보(Y)`는 EPSG:5174로 보존하고, `WGS84_LON`, `WGS84_LAT`와 `Coordinate` 객체를 추가합니다. 좌표 순서는 KATEC가 `(x, y)`, WGS84가 `(lon, lat)`입니다.
 
 ```python

@@ -79,6 +79,19 @@ def test_place_record_accepts_external_address_codes_after_enrichment() -> None:
     assert enriched.building_management_number == "1111011900100010091000001"
 
 
+def test_record_to_place_record_generates_db_key_for_blank_management_number() -> None:
+    blank_management_number_csv = CSV_TEXT.replace(",PHMA1,", ", ,", 1)
+    record = load_records_from_text(blank_management_number_csv, slug="hospitals")[0]
+
+    place = record_to_place_record(record)
+
+    assert record.management_number is None
+    assert place.mng_no is not None
+    assert place.mng_no.startswith("missing-mng-no-")
+    assert record_to_place_record(record).mng_no == place.mng_no
+    assert place_master_values(place)["mng_no"] == place.mng_no
+
+
 def test_build_place_models_creates_master_detail_pair() -> None:
     record = load_records_from_text(CSV_TEXT, slug="hospitals")[0]
     place = record_to_place_record(record)

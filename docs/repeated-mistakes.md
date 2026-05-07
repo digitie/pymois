@@ -15,6 +15,7 @@
 - 활용신청 링크는 공지 페이지의 `api-list` 링크에서 추출한 `application_url`을 사용합니다.
 - 증분 OpenAPI 목록을 바꾸면 `INCREMENTAL_OPENAPI_ENDPOINTS`와 `docs/incremental-openapi.md`도 함께 갱신합니다.
 - localdata 파일 다운로드는 인허가정보 195개를 기본 대상으로 합니다. 생활편의정보는 별도 kind로 남겨 둡니다.
+- live 전체 다운로드 검증을 범위별로 나누어 실행하면 기본 진행 파일이 덮어써집니다. 분할 실행 때는 `MOIS_LIVE_PROGRESS_PATH`를 범위별로 다르게 지정합니다.
 
 ## 조건 파라미터
 
@@ -23,6 +24,7 @@
 - 원천데이터 수정 시점 기준 증분조회는 `LAST_MDFCN_PNT`를 사용합니다.
 - 배치 동기화에서는 마지막 성공 시각을 별도 로그 테이블에 저장하고 다음 실행의 `GTE` 조건으로 사용합니다.
 - UPSERT 키는 관리번호 단독보다 `(service_slug, MNG_NO)` 조합이 안전합니다.
+- 실제 CSV에는 `MNG_NO`가 공백인 행이 있으므로 원본 `management_number`는 `None`으로 보존하고, DB 적재용 `PlaceRecord.mng_no`에만 `missing-mng-no-<sha256>` 대체 키를 사용합니다.
 - 폐업/취소 데이터는 삭제하지 말고 영업상태와 폐업일자를 갱신하는 soft delete로 처리합니다.
 
 ## 파일 다운로드

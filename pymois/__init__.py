@@ -35,7 +35,14 @@ from .exceptions import (
     MoisRequestError,
     MoisServerError,
 )
-from .files import LocalDataFileClient, load_records_from_bytes, load_records_from_text
+from .files import (
+    LocalDataFileClient,
+    iter_records_from_binary,
+    iter_records_from_bytes,
+    iter_records_from_text,
+    load_records_from_bytes,
+    load_records_from_text,
+)
 from .models import (
     BusinessStatusCategory,
     Condition,
@@ -109,6 +116,9 @@ __all__ = [
     "list_openapi_endpoints",
     "list_openapi_services",
     "list_response_fields",
+    "iter_records_from_binary",
+    "iter_records_from_bytes",
+    "iter_records_from_text",
     "load_records_from_bytes",
     "load_records_from_text",
     "record_to_place_record",

@@ -39,6 +39,8 @@ pip install -e ".[dev]"
 | `lon`, `lat`, `geom` | WGS84 좌표와 PostGIS 포인트 |
 | `data_updated_at`, `source_modified_at` | 데이터갱신시점, 최종수정시점 |
 
+일부 원천 CSV에는 `관리번호(MNG_NO)`가 공백인 행이 실제로 존재합니다. 이 경우 `LocalDataRecord.management_number`는 `None`으로 보존하고, DB 적재용 `PlaceRecord.mng_no`에는 `missing-mng-no-<sha256>` 형식의 안정적인 대체 키를 생성합니다. 대체 키는 원천 업종과 원본 행 값으로 계산하므로 원본 값이 같으면 같은 키가 만들어집니다.
+
 주요 인덱스:
 
 ```sql
@@ -76,24 +78,24 @@ create index ix_mois_place_master_road_name
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from pymois import LocalDataFileClient, create_postgis_schema, upsert_places
+from pymois import LocalDataFileClient, create_postgis_schema, upsert_place
 
 engine = create_engine("postgresql+psycopg://user:password@localhost:5432/mois")
 create_postgis_schema(engine)
 
-files = LocalDataFileClient()
-records = files.load_hospitals()
-
 with Session(engine) as session:
-    upsert_places(session, records, commit=True)
+    for record in LocalDataFileClient().iter_hospitals():
+        upsert_place(session, record)
+    session.commit()
 ```
 
-단일 레코드를 직접 변환할 수도 있습니다.
+대용량 업종은 `load_hospitals()`처럼 전체 목록을 만드는 방식보다 `iter_hospitals()`로 순회하며 배치 적재하는 방식을 권장합니다. 단일 레코드를 직접 변환할 수도 있습니다.
 
 ```python
-from pymois import build_place_models, record_to_place_record
+from pymois import LocalDataFileClient, build_place_models, record_to_place_record
 
-place = record_to_place_record(records[0])
+records = LocalDataFileClient().iter_hospitals()
+place = record_to_place_record(next(records))
 master, detail = build_place_models(place)
 
 print(place.point_wkt)
@@ -147,7 +149,7 @@ rows = client.get_updated_hospitals(since)
 
 ## 추천 적재 흐름
 
-1. localdata 파일을 `LocalDataFileClient.load()`로 읽어 Python 타입으로 정규화합니다.
+1. localdata 파일을 `LocalDataFileClient.iter()` 또는 `iter_hospitals()` 같은 스트리밍 함수로 읽어 Python 타입으로 정규화합니다.
 2. `record_to_place_record()`로 공통 필드를 추출합니다.
 3. `road_address`, `lot_address`, `road_zip`으로 도로명주소 API 또는 주소 DB 보강 배치를 실행합니다.
 4. 보강된 `ADM_CD`, `RN_MGT_SN`, `BD_MGT_SN` 값을 `legal_dong_code`, `road_name_code`, `building_management_number`에 저장합니다.

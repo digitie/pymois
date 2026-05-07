@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pymois import BusinessStatusCategory
-from pymois.files import LocalDataFileClient, load_records_from_bytes, load_records_from_text
+from pymois.files import (
+    LocalDataFileClient,
+    iter_records_from_binary,
+    iter_records_from_bytes,
+    iter_records_from_text,
+    load_records_from_bytes,
+    load_records_from_text,
+)
 
 CSV_TEXT = (
     "개방자치단체코드,관리번호,인허가일자,영업상태명,사업장명,"
@@ -53,22 +62,40 @@ def test_load_records_from_bytes_detects_cp949() -> None:
     assert records[0].business_name == "포레스트병원"
 
 
+def test_iter_records_streams_without_building_a_list() -> None:
+    records = iter_records_from_text(CSV_TEXT, slug="hospitals")
+    first = next(records)
+    assert first.management_number == "PHMA1"
+    assert list(records) == []
+
+    byte_records = iter_records_from_bytes(CSV_TEXT.encode("cp949"), slug="hospitals")
+    assert next(byte_records).business_name == "포레스트병원"
+
+
 @dataclass
 class FakeResponse:
     content: bytes = b""
     status_code: int = 200
     text: str = ""
     headers: dict[str, str] | None = None
+    chunks: list[bytes] | None = None
+
+    def iter_content(self, chunk_size: int = 1024) -> list[bytes]:
+        return self.chunks or [self.content]
 
 
 class FakeSession:
     def __init__(self) -> None:
         self.urls: list[str] = []
+        self.kwargs: list[dict[str, object]] = []
 
     def get(self, url: str, **kwargs: object) -> FakeResponse:
         self.urls.append(url)
+        self.kwargs.append(kwargs)
         if url.endswith("/file/download/hospitals/info"):
-            return FakeResponse(content=CSV_TEXT.encode("cp949"))
+            content = CSV_TEXT.encode("cp949")
+            midpoint = len(content) // 2
+            return FakeResponse(chunks=[content[:midpoint], content[midpoint:]])
         return FakeResponse()
 
 
@@ -80,6 +107,7 @@ def test_file_client_downloads_then_loads_with_browser_flow() -> None:
     assert session.urls[0].endswith("/file/hospitals/info")
     assert session.urls[1].endswith("/file/validate/download-count")
     assert session.urls[2].endswith("/file/download/hospitals/info")
+    assert session.kwargs[2]["stream"] is True
 
 
 def test_file_client_download_writes_path(tmp_path: Path) -> None:
@@ -87,3 +115,22 @@ def test_file_client_download_writes_path(tmp_path: Path) -> None:
     client = LocalDataFileClient(session=session)
     output = client.download_hospitals(tmp_path / "hospitals.csv")
     assert output.read_bytes().startswith("개방자치단체코드".encode("cp949"))
+
+
+def test_file_client_iter_dynamic_method_streams_records() -> None:
+    session = FakeSession()
+    client = LocalDataFileClient(session=session)
+    records = client.iter_hospitals()
+    assert next(records).management_number == "PHMA1"
+    assert list(records) == []
+
+
+def test_iter_records_from_binary_reads_zip_stream() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("hospitals.csv", CSV_TEXT.encode("cp949"))
+    archive.seek(0)
+
+    records = iter_records_from_binary(archive, slug="hospitals")
+
+    assert next(records).management_number == "PHMA1"
