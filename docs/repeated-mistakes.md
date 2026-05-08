@@ -7,6 +7,17 @@
 - PowerShell here-string으로 한국어 문서를 바로 생성하면 입력 인코딩 때문에 `??`로 깨질 수 있습니다.
 - 한국어 문서는 UTF-8 파일을 `apply_patch`로 만들거나, 저장소의 UTF-8 Python 스크립트에서 생성합니다.
 - 생성 문서는 `python -c "Path(...).read_text(encoding='utf-8')"`로 앞부분을 확인합니다.
+- PowerShell 기본 출력 인코딩 때문에 UTF-8 문서가 깨져 보일 수 있습니다. 문서를 읽을 때는 `Get-Content -Encoding UTF8`처럼 인코딩을 명시합니다.
+
+## 문서 작성
+
+- 사용자-facing 문서와 Python 내부 문서(docstring, 공개 API 설명)는 한국어로 작성합니다.
+- 문서의 파일 위치 정보는 절대 경로가 아니라 프로젝트 기준 상대 경로로 적습니다.
+
+## 파일 탐색
+
+- `rg`가 실행 권한 문제로 막히는 환경에서는 실패를 반복하지 말고 PowerShell 파일 목록 명령으로 우회합니다.
+- 파일 목록은 `Get-ChildItem -Recurse -File`을 우선 사용하고, 내용 검색이 필요하면 `Select-String`을 사용합니다.
 
 ## API 목록
 
