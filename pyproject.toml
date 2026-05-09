@@ -41,9 +41,13 @@ dev = [
   "mypy>=1.10",
   "types-requests>=2.31",
 ]
+web = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+]
 
 [tool.setuptools.packages.find]
-include = ["pymois*"]
+include = ["pymois*", "apps*"]
 
 [tool.ruff]
 line-length = 100

@@ -9,6 +9,8 @@ htmlcov/
 dist/
 build/
 .venv/
+.venv-wsl/
 venv/
 artifacts/
 *.log
+node_modules/
