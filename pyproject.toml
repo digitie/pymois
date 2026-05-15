@@ -48,7 +48,7 @@ web = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["mois*", "apps*"]
+include = ["mois*"]
 
 [tool.setuptools.package-data]
 mois = ["py.typed"]

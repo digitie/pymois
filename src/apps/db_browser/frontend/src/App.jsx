@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  ExternalLink,
   Filter,
   MapPin,
   RefreshCcw,
@@ -67,6 +68,10 @@ export default function App() {
         (a, b) => a.localeCompare(b, "ko")
       ),
     [services]
+  );
+  const selectedService = useMemo(
+    () => services.find((service) => service.serviceSlug === filters.serviceSlug) || null,
+    [filters.serviceSlug, services]
   );
 
   async function loadOverview() {
@@ -212,6 +217,22 @@ export default function App() {
                     ))}
                 </select>
               </label>
+              {selectedService?.applicationUrl ? (
+                <a
+                  href={selectedService.applicationUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-start gap-2 rounded border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-brand hover:bg-teal-100"
+                >
+                  <ExternalLink size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0">
+                    <span className="block truncate">{selectedService.name} 서비스키 신청</span>
+                    <span className="block truncate text-xs font-medium text-teal-700">
+                      data.go.kr 활용신청
+                    </span>
+                  </span>
+                </a>
+              ) : null}
 
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700">영업 상태</span>

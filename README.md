@@ -15,6 +15,7 @@
 - EPSG:5174 좌표를 WGS84 `(lon, lat)`로 변환하고 좌표 값 객체 제공
 - OpenAPI/파일/조건/좌표계 enum과 타입 별칭 제공
 - Pydantic, SQLAlchemy 2, GeoAlchemy2 기반 PostgreSQL/PostGIS 적재 모델 제공
+- 디버그 UI에서 저장한 fixture JSON을 외부 호출 없이 replay하는 pytest runner 구조 제공
 - 네트워크 없는 단위 테스트와 실제 호출용 live 테스트 분리 가능
 
 ## 설치
@@ -159,6 +160,26 @@ records = LocalDataFileClient().load_hospitals()
 with Session(engine) as session:
     upsert_places(session, records, commit=True)
 ```
+
+## 디버그 fixture 구조
+
+디버그 UI는 React/FastAPI 소스를 그대로 사용하되, 라이브러리 wheel에는 포함하지 않습니다. 라이브러리 패키지에는 OpenAPI 실행을 디버깅하고 fixture로 저장하기 위한 `mois.parser`, `mois.processor`, `mois.debug`, `mois.fixtures` 모듈만 포함합니다.
+
+```python
+from mois import MoisClient, save_debug_fixture
+
+client = MoisClient("공공데이터포털_서비스키")
+debug_run = client.debug_request("hospitals", num_of_rows=1)
+
+save_debug_fixture(
+    debug_run,
+    base_dir="tests/fixtures",
+    case_name="hospitals_normal",
+    description="병원 정상 조회 케이스",
+)
+```
+
+저장된 fixture는 `tests/test_generated_fixtures.py`에서 자동으로 replay됩니다. replay 테스트는 저장된 raw response를 다시 파싱하고 가공 결과를 비교하므로 기본 테스트에서 외부 API를 호출하지 않습니다.
 
 ## 목록 확인
 

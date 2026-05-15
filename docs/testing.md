@@ -18,6 +18,7 @@ python -m mypy src/mois
 - OpenAPI 요청 파라미터: `cond[FIELD::OP]` 생성
 - 증분/이력 편의 메서드: `DAT_UPDT_PNT`, `LAST_MDFCN_PNT`, `BASE_DATE`, `OPN_ATMY_GRP_CD`
 - JSON/XML 응답 파싱과 resultCode 예외 매핑
+- 디버그 UI fixture replay: `tests/fixtures/**/*.json`을 공통 runner로 읽어 파싱/가공 결과 비교
 - localdata CSV 로드: CP949, 날짜, KST 시각, 숫자, 좌표 변환
 - 좌표 값 객체: `KatecPoint(x, y)`, `Wgs84Point(lon, lat)`, `StationCoordinates` 호환 별칭
 - 동적 편의 함수: `get_hospitals()`, `get_updated_hospitals()`, `load_hospitals()` 계열
@@ -44,6 +45,19 @@ def test_live_hospitals_first_page():
 ```
 
 live 테스트는 CI 기본 경로에 넣지 않습니다. 호출 제한과 인증키 상태가 테스트 결과를 흔들 수 있기 때문입니다.
+
+## 디버그 UI fixture replay
+
+React/FastAPI 디버그 UI는 테스트 코드를 직접 생성하지 않고 fixture JSON을 저장하는 흐름을 사용합니다. 저장 위치는 기본적으로 `tests/fixtures/{function}/{case}.json`이며, 기본 테스트의 `tests/test_generated_fixtures.py`가 이 파일들을 자동으로 읽어 외부 API 호출 없이 replay합니다.
+
+라이브러리 쪽 구조는 다음 역할로 나뉩니다.
+
+- `mois.parser`: raw OpenAPI JSON/XML 응답을 `MoisResponse`로 파싱
+- `mois.processor`: 파싱 결과를 라이브러리 반환 형태로 가공
+- `mois.debug`: `DebugRun`, JSON 변환, 민감정보 마스킹
+- `mois.fixtures`: 디버그 실행 결과를 pytest replay fixture로 저장
+
+fixture에는 API key, Authorization header, access token 같은 민감정보를 저장하지 않습니다. 기본 assertion mode는 `snapshot`, `schema_only`, `required_fields`를 지원하며, 변동 필드는 `assertion.exclude_fields`로 제외합니다.
 
 ## 195개 인허가 파일 실제 다운로드 검증
 

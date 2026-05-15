@@ -16,7 +16,7 @@ from sqlalchemy import case, create_engine, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mois import PlaceDetail, PlaceMaster, list_file_downloads
+from mois import PlaceDetail, PlaceMaster, list_file_downloads, list_openapi_services
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -69,7 +69,7 @@ def create_app(
     @app.get("/api/services")
     def services() -> dict[str, Any]:
         try:
-            return {"items": get_repository().services()}
+            return {"items": _with_service_application_urls(get_repository().services())}
         except DatabaseNotConfiguredError as exc:
             raise _db_not_configured() from exc
 
@@ -280,6 +280,17 @@ def _repository_from_database_url(database_url: str | None) -> SQLAlchemyPlaceRe
     if not actual_url:
         return None
     return SQLAlchemyPlaceRepository(create_engine(actual_url, pool_pre_ping=True))
+
+
+def _with_service_application_urls(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    catalog = {service.slug: service for service in list_openapi_services()}
+    enriched: list[dict[str, Any]] = []
+    for item in items:
+        service = catalog.get(str(item.get("serviceSlug") or ""))
+        enriched_item = dict(item)
+        enriched_item["applicationUrl"] = service.application_url if service else None
+        enriched.append(enriched_item)
+    return enriched
 
 
 def _place_filters(

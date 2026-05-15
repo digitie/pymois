@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
 from datetime import date, datetime
 from typing import Any
@@ -12,8 +11,11 @@ from requests import RequestException
 
 from ._http import build_session, raise_for_http_error
 from .catalogs import get_openapi_service
-from .exceptions import MoisAuthError, MoisParseError, MoisRequestError, MoisServerError
+from .debug import DebugRun, error_to_dict, jsonable, redact_sensitive
+from .exceptions import MoisRequestError
 from .models import Condition, ConditionOperator, MoisResponse, OpenApiKind
+from .parser import parse_openapi_response
+from .processor import process_openapi_response
 
 
 class MoisClient:
@@ -57,31 +59,90 @@ class MoisClient:
     ) -> MoisResponse:
         """업종 slug와 구분(info/history)으로 한 페이지를 호출합니다."""
 
-        kind_value = str(kind)
-        if kind_value not in {OpenApiKind.INFO.value, OpenApiKind.HISTORY.value}:
-            raise ValueError('kind must be "info" or "history"')
-        if page_no < 1:
-            raise ValueError("page_no must be >= 1")
-        if not 1 <= num_of_rows <= 100:
-            raise ValueError("num_of_rows must be between 1 and 100")
+        url, request_params, kind_value = self._build_openapi_request(
+            slug,
+            kind=kind,
+            page_no=page_no,
+            num_of_rows=num_of_rows,
+            conditions=conditions,
+            params=params,
+        )
+        response = self._send_openapi_request(url, request_params, context=f"{slug}/{kind_value}")
+        return parse_openapi_response(response, page_no=page_no, num_of_rows=num_of_rows)
 
-        url = self._endpoint_url(slug, kind_value)
-        request_params: dict[str, Any] = {
-            "serviceKey": self.service_key,
-            "pageNo": page_no,
-            "numOfRows": num_of_rows,
+    def debug_request(
+        self,
+        slug: str,
+        *,
+        kind: str | OpenApiKind = OpenApiKind.INFO,
+        page_no: int = 1,
+        num_of_rows: int = 100,
+        conditions: Mapping[str, Any] | Iterable[Condition] | None = None,
+        params: Mapping[str, Any] | None = None,
+    ) -> DebugRun:
+        """OpenAPI 1회 실행의 요청/응답/파싱/가공 결과를 디버그 구조로 반환합니다."""
+
+        trace: list[str] = []
+        request_data: dict[str, Any] = {}
+        response_data: dict[str, Any] = {}
+        parsed: MoisResponse | None = None
+        processed: list[Mapping[str, Any]] | None = None
+        error: dict[str, Any] | None = None
+        input_data: dict[str, Any] = {
+            "slug": slug,
+            "kind": str(kind),
+            "page_no": page_no,
+            "num_of_rows": num_of_rows,
+            "params": dict(params or {}),
         }
-        request_params.update(_condition_params(conditions))
-        if params:
-            request_params.update(params)
 
         try:
-            response = self.session.get(url, params=request_params, timeout=self.timeout)
-            raise_for_http_error(response, f"{slug}/{kind}")
-        except RequestException as exc:
-            raise MoisRequestError(f"{slug}/{kind_value}: request failed") from exc
+            url, request_params, kind_value = self._build_openapi_request(
+                slug,
+                kind=kind,
+                page_no=page_no,
+                num_of_rows=num_of_rows,
+                conditions=conditions,
+                params=params,
+            )
+            input_data["conditions"] = {
+                key: value for key, value in request_params.items() if key.startswith("cond[")
+            }
+            request_data = {
+                "method": "GET",
+                "url": url,
+                "query": request_params,
+                "headers": {"Accept": "*/*"},
+            }
+            trace.append("OpenAPI 요청을 구성했습니다.")
 
-        return _parse_openapi_response(response, page_no=page_no, num_of_rows=num_of_rows)
+            response = self._send_openapi_request(
+                url,
+                request_params,
+                context=f"{slug}/{kind_value}",
+            )
+            response_data = _response_debug_data(response)
+            trace.append("OpenAPI 응답을 받았습니다.")
+
+            parsed = parse_openapi_response(response, page_no=page_no, num_of_rows=num_of_rows)
+            trace.append("원본 응답을 MoisResponse로 파싱했습니다.")
+
+            processed = process_openapi_response(parsed)
+            trace.append("파싱 결과를 라이브러리 반환 형태로 가공했습니다.")
+        except Exception as exc:
+            error = error_to_dict(exc)
+            trace.append("실행 중 예외를 캡처했습니다.")
+
+        return DebugRun(
+            function="openapi_request",
+            input=redact_sensitive(jsonable(input_data)),
+            request=redact_sensitive(jsonable(request_data)),
+            response=redact_sensitive(jsonable(response_data)),
+            parsed=parsed,
+            processed=processed,
+            trace=tuple(trace),
+            error=error,
+        )
 
     def get(
         self,
@@ -95,7 +156,7 @@ class MoisClient:
     ) -> list[Mapping[str, Any]]:
         """한 페이지의 item 목록만 반환합니다."""
 
-        return list(
+        return process_openapi_response(
             self.request(
                 slug,
                 kind=kind,
@@ -103,7 +164,7 @@ class MoisClient:
                 num_of_rows=num_of_rows,
                 conditions=conditions,
                 params=params,
-            ).items
+            )
         )
 
     def iter_records(
@@ -283,6 +344,71 @@ class MoisClient:
             return f"{self.base_url}/{slug}/{kind}"
         return service.info_url if kind == "info" else service.history_url
 
+    def _build_openapi_request(
+        self,
+        slug: str,
+        *,
+        kind: str | OpenApiKind,
+        page_no: int,
+        num_of_rows: int,
+        conditions: Mapping[str, Any] | Iterable[Condition] | None,
+        params: Mapping[str, Any] | None,
+    ) -> tuple[str, dict[str, Any], str]:
+        kind_value = str(kind)
+        if kind_value not in {OpenApiKind.INFO.value, OpenApiKind.HISTORY.value}:
+            raise ValueError('kind must be "info" or "history"')
+        if page_no < 1:
+            raise ValueError("page_no must be >= 1")
+        if not 1 <= num_of_rows <= 100:
+            raise ValueError("num_of_rows must be between 1 and 100")
+
+        url = self._endpoint_url(slug, kind_value)
+        request_params: dict[str, Any] = {
+            "serviceKey": self.service_key,
+            "pageNo": page_no,
+            "numOfRows": num_of_rows,
+        }
+        request_params.update(_condition_params(conditions))
+        if params:
+            request_params.update(params)
+        return url, request_params, kind_value
+
+    def _send_openapi_request(
+        self,
+        url: str,
+        request_params: Mapping[str, Any],
+        *,
+        context: str,
+    ) -> Any:
+        try:
+            response = self.session.get(url, params=dict(request_params), timeout=self.timeout)
+            raise_for_http_error(response, context)
+        except RequestException as exc:
+            raise MoisRequestError(f"{context}: request failed") from exc
+        return response
+
+
+def _response_debug_data(response: Any) -> dict[str, Any]:
+    headers = dict(getattr(response, "headers", {}) or {})
+    return {
+        "status_code": getattr(response, "status_code", None),
+        "headers": headers,
+        "body": _response_debug_body(response, headers),
+    }
+
+
+def _response_debug_body(response: Any, headers: Mapping[str, Any]) -> Any:
+    content_type = str(
+        headers.get("Content-Type") or headers.get("content-type") or ""
+    ).lower()
+    text = getattr(response, "text", "")
+    if "json" in content_type or str(text).lstrip().startswith("{"):
+        try:
+            return response.json()
+        except (AttributeError, ValueError):
+            return text
+    return text
+
 
 def _dynamic_name_to_slug(name: str) -> tuple[str, str]:
     if name.endswith("_history"):
@@ -327,105 +453,3 @@ def _date_param(value: date | str) -> str:
     if len(digits) != 8:
         raise ValueError("base_date must be YYYYMMDD or date")
     return digits
-
-
-def _parse_openapi_response(response: Any, *, page_no: int, num_of_rows: int) -> MoisResponse:
-    content_type = str(getattr(response, "headers", {}).get("Content-Type", "")).lower()
-    text = getattr(response, "text", "")
-    if "json" in content_type:
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise MoisParseError("JSON 응답을 해석할 수 없습니다") from exc
-        return _parse_json_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
-    stripped = text.lstrip()
-    if stripped.startswith("{"):
-        try:
-            return _parse_json_payload(response.json(), page_no=page_no, num_of_rows=num_of_rows)
-        except ValueError as exc:
-            raise MoisParseError("JSON 응답을 해석할 수 없습니다") from exc
-    return _parse_xml_payload(text, page_no=page_no, num_of_rows=num_of_rows)
-
-
-def _parse_json_payload(payload: Any, *, page_no: int, num_of_rows: int) -> MoisResponse:
-    if not isinstance(payload, Mapping):
-        raise MoisParseError("JSON 응답 최상위가 객체가 아닙니다")
-    envelope = payload.get("response", payload)
-    if not isinstance(envelope, Mapping):
-        raise MoisParseError("JSON response가 객체가 아닙니다")
-    header = envelope.get("header", {})
-    if isinstance(header, Mapping):
-        _raise_for_result(header.get("resultCode"), header.get("resultMsg"))
-    body = envelope.get("body", envelope)
-    if not isinstance(body, Mapping):
-        raise MoisParseError("JSON body가 객체가 아닙니다")
-    items = _extract_items(body)
-    return MoisResponse(
-        items=tuple(items),
-        page_no=_int_or_none(body.get("pageNo")) or page_no,
-        num_of_rows=_int_or_none(body.get("numOfRows")) or num_of_rows,
-        total_count=_int_or_none(body.get("totalCount")),
-        raw=payload,
-    )
-
-
-def _parse_xml_payload(text: str, *, page_no: int, num_of_rows: int) -> MoisResponse:
-    try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
-        raise MoisParseError("XML 응답을 해석할 수 없습니다") from exc
-    header = root.find(".//header")
-    if header is not None:
-        _raise_for_result(_child_text(header, "resultCode"), _child_text(header, "resultMsg"))
-    body_element = root.find(".//body")
-    body = body_element if body_element is not None else root
-    items = [_xml_item_to_dict(item) for item in body.findall(".//item")]
-    return MoisResponse(
-        items=tuple(items),
-        page_no=_int_or_none(_child_text(body, "pageNo")) or page_no,
-        num_of_rows=_int_or_none(_child_text(body, "numOfRows")) or num_of_rows,
-        total_count=_int_or_none(_child_text(body, "totalCount")),
-        raw={"xml": text},
-    )
-
-
-def _extract_items(body: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    source = body.get("items", body.get("item", body.get("data", [])))
-    if isinstance(source, Mapping) and "item" in source:
-        source = source["item"]
-    if source is None:
-        return []
-    if isinstance(source, Mapping):
-        return [source]
-    if isinstance(source, list) and all(isinstance(item, Mapping) for item in source):
-        return source
-    raise MoisParseError("items.item을 목록으로 해석할 수 없습니다")
-
-
-def _xml_item_to_dict(element: ET.Element) -> dict[str, Any]:
-    return {child.tag: child.text for child in list(element)}
-
-
-def _child_text(element: ET.Element, name: str) -> str | None:
-    child = element.find(name)
-    return child.text if child is not None else None
-
-
-def _raise_for_result(code: Any, message: Any) -> None:
-    if code in (None, "", "00", "0"):
-        return
-    text = f"OpenAPI resultCode={code}: {message or ''}".strip()
-    if str(code) in {"20", "30", "31"}:
-        raise MoisAuthError(text)
-    if str(code) in {"04", "99"}:
-        raise MoisServerError(text)
-    raise MoisRequestError(text)
-
-
-def _int_or_none(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(str(value).strip())
-    except ValueError:
-        return None

@@ -91,7 +91,9 @@ def test_db_browser_api_with_fake_repository() -> None:
 
     assert client.get("/api/health").json()["databaseConfigured"] is True
     assert client.get("/api/stats").json()["total"] == 2
-    assert client.get("/api/services").json()["items"][0]["serviceSlug"] == "hospitals"
+    service = client.get("/api/services").json()["items"][0]
+    assert service["serviceSlug"] == "hospitals"
+    assert service["applicationUrl"] == "https://www.data.go.kr/data/15154458/openapi.do"
 
     places = client.get(
         "/api/places",

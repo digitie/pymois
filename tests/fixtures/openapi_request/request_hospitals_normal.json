@@ -1,0 +1,78 @@
+{
+  "name": "request_hospitals_normal",
+  "function": "openapi_request",
+  "description": "병원 OpenAPI 정상 응답 replay fixture",
+  "input": {
+    "slug": "hospitals",
+    "kind": "info",
+    "page_no": 1,
+    "num_of_rows": 100,
+    "conditions": {}
+  },
+  "request": {
+    "method": "GET",
+    "url": "http://apis.data.go.kr/1741000/hospitals/info",
+    "query": {
+      "serviceKey": "<REDACTED>",
+      "pageNo": 1,
+      "numOfRows": 100
+    },
+    "headers": {
+      "Accept": "*/*"
+    }
+  },
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "response": {
+        "header": {
+          "resultCode": "00",
+          "resultMsg": "NORMAL"
+        },
+        "body": {
+          "pageNo": 1,
+          "numOfRows": 100,
+          "totalCount": 1,
+          "items": {
+            "item": [
+              {
+                "MNG_NO": "A1",
+                "BPLC_NM": "포레스트병원"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "parsed": {
+    "items": [
+      {
+        "MNG_NO": "A1",
+        "BPLC_NM": "포레스트병원"
+      }
+    ],
+    "page_no": 1,
+    "num_of_rows": 100,
+    "total_count": 1
+  },
+  "processed": [
+    {
+      "MNG_NO": "A1",
+      "BPLC_NM": "포레스트병원"
+    }
+  ],
+  "assertion": {
+    "mode": "snapshot",
+    "exclude_fields": [],
+    "required_fields": []
+  },
+  "meta": {
+    "created_at": "2026-05-15T20:30:00+09:00",
+    "library_version": "0.1.0",
+    "source": "debug_ui"
+  }
+}
