@@ -6,7 +6,11 @@
 
 - 사용자-facing 문서는 한국어로 작성합니다.
 - API/파일/응답변수 목록은 손으로 복사하지 않고 공식 자료에서 생성된 카탈로그를 기준으로 합니다.
-- 불필요한 wrapper를 만들지 않습니다. 검증된 다른 라이브러리의 구현이 더 적합하면 단순 최소수정보다 동작 일치와 유지보수성을 우선해 해당 구현 방식을 프로젝트 코드에 직접 반영합니다.
+- 외부 API 관련 작업은 다른 구현보다 먼저 wrapper/adapter/gateway 지양 원칙을 확인하고 문서/코드에 반영한 뒤 진행합니다.
+- downstream이 직접 사용할 안정된 public client, typed model, enum, helper를 제공합니다.
+- 단순 전달용 wrapper, 장기 호환 alias, 임시 facade를 만들지 않습니다.
+- TripMate나 `python-krtour-map`에서 필요한 endpoint, pagination, cursor, exception, raw payload 계약이 부족하면 이 저장소의 public API를 먼저 안정화합니다.
+- 검증된 다른 라이브러리의 구현이 더 적합하면 wrapper로 감싸지 말고 라이선스와 출처를 확인한 뒤 프로젝트 코드에 직접 반영합니다.
 - 기본 테스트는 네트워크를 사용하지 않습니다.
 - live 테스트는 `MOIS_SERVICE_KEY`가 있을 때만 실행되게 분리합니다.
 - 인허가정보 CSV는 CP949, 좌표계는 EPSG:5174라는 전제를 잊지 않습니다.
