@@ -4,15 +4,19 @@ from datetime import date, datetime
 from uuid import UUID
 
 import pytest
-from sqlalchemy.dialects import postgresql
+from sqlalchemy import create_engine, select
+from sqlalchemy.dialects import sqlite
+from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateTable
 
 from mois import (
     PlaceMaster,
     PlaceRecord,
     build_place_models,
+    create_sqlite_schema,
     infer_domain_category,
     record_to_place_record,
+    upsert_place,
 )
 from mois.db import place_master_values
 from mois.files import load_records_from_text
@@ -47,9 +51,12 @@ def test_place_record_extracts_db_and_linkage_fields() -> None:
     assert place.station_coordinates is not None
     assert place.wgs84_point.as_tuple() == (place.lon, place.lat)
     assert isinstance(place.data_updated_at, datetime)
+    assert place.detail_status_code is None
+    assert place.data_update_type is None
+    assert place.sickbed_count == 92
 
     specific_data = place.specific_data()
-    assert specific_data["SCKBD_CNT"] == 92
+    assert "SCKBD_CNT" not in specific_data
     assert "ROAD_NM_ADDR" not in specific_data
     assert place.json_data()["LCPMT_YMD"] == "2025-02-28"
 
@@ -102,25 +109,43 @@ def test_build_place_models_creates_master_detail_pair() -> None:
     assert master.place_id == place_id
     assert master.service_slug == "hospitals"
     assert master.mng_no == "PHMA1"
-    assert master.geom is not None
-    assert master.geom.data.startswith("POINT(")
+    assert master.geom_wkt is not None
+    assert master.geom_wkt.startswith("POINT(")
+    assert master.sickbed_count == 92
     assert detail.place_id == place_id
-    assert detail.specific_data["SCKBD_CNT"] == 92
-    assert detail.record_data["ROAD_NM_ADDR"] == "서울특별시 종로구 세종대로 209"
+    assert "SCKBD_CNT" not in detail.specific_data
+    assert "ROAD_NM_ADDR" not in detail.raw_data
 
 
-def test_postgis_master_table_ddl_contains_geometry_and_indexes() -> None:
-    ddl = str(CreateTable(PlaceMaster.__table__).compile(dialect=postgresql.dialect()))
+def test_sqlite_master_table_ddl_contains_wkt_and_indexes() -> None:
+    ddl = str(CreateTable(PlaceMaster.__table__).compile(dialect=sqlite.dialect()))
 
-    assert "geometry(POINT,4326)" in ddl
+    assert "geom_wkt" in ddl
     assert "uq_mois_place_master_source" in ddl
     assert "service_slug" in ddl
     assert "mng_no" in ddl
 
     index_names = {index.name for index in PlaceMaster.__table__.indexes}
-    assert "ix_mois_place_master_geom" in index_names
+    assert "ix_mois_place_master_lon_lat" in index_names
     assert "ix_mois_place_master_legal_dong" in index_names
     assert "ix_mois_place_master_road_name" in index_names
+    assert "ix_mois_place_master_detail_status" in index_names
+    assert "ix_mois_place_master_subtype" in index_names
+
+
+def test_sqlite_schema_upsert_and_json_filter() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    create_sqlite_schema(engine, load_spatialite=False)
+    record = load_records_from_text(CSV_TEXT, slug="hospitals")[0]
+
+    with Session(engine) as session:
+        place_id = upsert_place(session, record, commit=True)
+        stored = session.get(PlaceMaster, place_id)
+        assert stored is not None
+        assert stored.geom_wkt is not None
+        assert stored.geom_wkt.startswith("POINT(")
+        bed_count = session.scalar(select(PlaceMaster.sickbed_count))
+        assert bed_count == 92
 
 
 def test_place_master_values_requires_management_number() -> None:

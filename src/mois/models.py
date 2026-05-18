@@ -242,7 +242,7 @@ class Wgs84Point:
         return self.lon, self.lat
 
     def to_wkt(self) -> str:
-        """PostGIS 등에 사용할 WKT Point 문자열을 반환합니다."""
+        """공간 DB 등에 사용할 WKT Point 문자열을 반환합니다."""
 
         return f"POINT({self.lon} {self.lat})"
 

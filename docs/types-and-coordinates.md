@@ -6,7 +6,7 @@
 
 - KATEC/EPSG:5174 좌표는 항상 `(x, y)` 순서입니다.
 - WGS84/EPSG:4326 좌표는 항상 `(lon, lat)` 순서입니다.
-- GeoJSON Position, WKT, PostGIS 입력도 WGS84일 때 `(lon, lat)`입니다.
+- GeoJSON Position, WKT, SpatiaLite 입력도 WGS84일 때 `(lon, lat)`입니다.
 - 위도/경도라고 말할 때도 코드에서는 `lat, lon` 순서로 넘기지 않습니다.
 
 ## 좌표 값 객체

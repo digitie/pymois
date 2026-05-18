@@ -9,7 +9,7 @@ import pytest
 from mois import (
     LocalDataFileClient,
     LocalDataRecord,
-    create_postgis_schema,
+    create_sqlite_schema,
     list_file_downloads,
     record_to_place_record,
     upsert_place,
@@ -67,9 +67,10 @@ def test_all_license_downloads_can_parse_and_prepare_db_models_without_network()
         master, detail = build_place_models(place)
         assert master.service_slug == download.slug
         assert master.mng_no == f"{download.slug}-MNG-1"
-        assert master.geom is not None
-        assert detail.record_data["MNG_NO"] == f"{download.slug}-MNG-1"
-        assert place_master_values(place)["geom"] is not None
+        assert master.geom_wkt is not None
+        assert detail.place_id == master.place_id
+        assert "MNG_NO" not in detail.specific_data
+        assert place_master_values(place)["geom_wkt"] is not None
         seen_slugs.add(download.slug)
 
     assert len(downloads) == 195
@@ -83,7 +84,7 @@ def test_all_license_downloads_can_parse_and_prepare_db_models_without_network()
 
 
 @pytest.mark.live
-def test_live_all_license_downloads_and_optional_postgis_load() -> None:
+def test_live_all_license_downloads_and_optional_sqlite_load() -> None:
     if os.getenv("MOIS_RUN_ALL_DOWNLOAD_LIVE") != "1":
         pytest.skip("MOIS_RUN_ALL_DOWNLOAD_LIVE=1일 때만 195개 실제 다운로드를 실행합니다")
 
@@ -96,14 +97,15 @@ def test_live_all_license_downloads_and_optional_postgis_load() -> None:
         os.getenv("MOIS_LIVE_PROGRESS_PATH", "artifacts/live_all_license_downloads_progress.txt")
     )
     progress_path.parent.mkdir(parents=True, exist_ok=True)
-    database_url = os.getenv("MOIS_DATABASE_URL")
+    database_path = os.getenv("MOIS_SQLITE_PATH")
     engine = None
-    if database_url:
+    if database_path:
         from sqlalchemy import create_engine
         from sqlalchemy.orm import Session
 
-        engine = create_engine(database_url)
-        create_postgis_schema(engine)
+        path = Path(database_path)
+        engine = create_engine(f"sqlite:///{path.resolve().as_posix()}")
+        create_sqlite_schema(engine)
 
     failures: list[str] = []
     total_records = 0

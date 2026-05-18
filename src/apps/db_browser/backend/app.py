@@ -1,4 +1,4 @@
-"""mois PostGIS DB를 조회하는 FastAPI 백엔드."""
+"""mois SQLite/SpatiaLite DB를 조회하는 FastAPI 백엔드."""
 
 from __future__ import annotations
 
@@ -16,35 +16,42 @@ from sqlalchemy import case, create_engine, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mois import PlaceDetail, PlaceMaster, list_file_downloads, list_openapi_services
+from mois import (
+    PlaceDetail,
+    PlaceMaster,
+    compact_json_dumps,
+    create_sqlite_schema,
+    list_file_downloads,
+    list_openapi_services,
+)
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
 
 class DatabaseNotConfiguredError(RuntimeError):
-    """DB URL이 설정되지 않았거나 저장소가 없는 경우."""
+    """SQLite DB 경로가 설정되지 않았거나 저장소가 없는 경우."""
 
 
 def create_app(
     *,
-    database_url: str | None = None,
+    database_path: str | os.PathLike[str] | None = None,
     repository: Any | None = None,
     frontend_dist: str | os.PathLike[str] | None = None,
 ) -> FastAPI:
     """FastAPI 앱을 생성합니다.
 
     `repository`는 테스트에서 가짜 저장소를 주입할 때 사용합니다.
-    운영/개발 실행에서는 `MOIS_DATABASE_URL` 또는 `database_url`을 사용합니다.
+    운영/개발 실행에서는 `MOIS_SQLITE_PATH` 또는 `database_path`를 사용합니다.
     """
 
     app = FastAPI(
         title="mois DB 브라우저",
-        description="행정안전부 인허가정보 PostGIS 적재 결과를 조회합니다.",
+        description="행정안전부 인허가정보 SQLite/SpatiaLite 적재 결과를 조회합니다.",
         version="0.1.0",
     )
     _configure_cors(app)
-    repo = repository or _repository_from_database_url(database_url)
+    repo = repository or _repository_from_database_path(database_path)
 
     def get_repository() -> Any:
         if repo is None:
@@ -57,6 +64,7 @@ def create_app(
         return {
             "ok": True,
             "databaseConfigured": configured,
+            "spatialiteEnabled": bool(getattr(repo, "spatialite_enabled", False)),
         }
 
     @app.get("/api/stats")
@@ -82,6 +90,10 @@ def create_app(
         service_slug: Annotated[str | None, Query()] = None,
         category: Annotated[str | None, Query()] = None,
         is_open: Annotated[bool | None, Query()] = None,
+        detail_status_code: Annotated[str | None, Query()] = None,
+        business_type_name: Annotated[str | None, Query()] = None,
+        subtype_name: Annotated[str | None, Query()] = None,
+        sales_method_name: Annotated[str | None, Query()] = None,
         limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> dict[str, Any]:
@@ -91,6 +103,10 @@ def create_app(
                 service_slug=service_slug,
                 category=category,
                 is_open=is_open,
+                detail_status_code=detail_status_code,
+                business_type_name=business_type_name,
+                subtype_name=subtype_name,
+                sales_method_name=sales_method_name,
                 limit=limit,
                 offset=offset,
             )
@@ -116,9 +132,10 @@ def create_app(
 class SQLAlchemyPlaceRepository:
     """SQLAlchemy 세션으로 mois 적재 테이블을 조회합니다."""
 
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, *, spatialite_enabled: bool = False) -> None:
         self._session_factory: Callable[[], Session] = sessionmaker(bind=engine)
         self._catalog = {download.slug: download for download in list_file_downloads()}
+        self.spatialite_enabled = spatialite_enabled
 
     def stats(self) -> dict[str, Any]:
         with self._session_factory() as session:
@@ -202,10 +219,23 @@ class SQLAlchemyPlaceRepository:
         service_slug: str | None,
         category: str | None,
         is_open: bool | None,
+        detail_status_code: str | None,
+        business_type_name: str | None,
+        subtype_name: str | None,
+        sales_method_name: str | None,
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
-        filters = _place_filters(q=q, service_slug=service_slug, category=category, is_open=is_open)
+        filters = _place_filters(
+            q=q,
+            service_slug=service_slug,
+            category=category,
+            is_open=is_open,
+            detail_status_code=detail_status_code,
+            business_type_name=business_type_name,
+            subtype_name=subtype_name,
+            sales_method_name=sales_method_name,
+        )
         with self._session_factory() as session:
             total = _scalar_int(
                 session,
@@ -238,7 +268,7 @@ class SQLAlchemyPlaceRepository:
         payload = _place_summary(master)
         payload["detail"] = {
             "specificData": detail.specific_data if detail else {},
-            "recordData": detail.record_data if detail else {},
+            "recordData": _record_data(master, detail),
             "rawData": detail.raw_data if detail else {},
         }
         return payload
@@ -275,11 +305,18 @@ class SQLAlchemyPlaceRepository:
         }
 
 
-def _repository_from_database_url(database_url: str | None) -> SQLAlchemyPlaceRepository | None:
-    actual_url = database_url or os.getenv("MOIS_DATABASE_URL")
-    if not actual_url:
+def _repository_from_database_path(
+    database_path: str | os.PathLike[str] | None,
+) -> SQLAlchemyPlaceRepository | None:
+    raw_path = database_path or os.getenv("MOIS_SQLITE_PATH")
+    if not raw_path:
         return None
-    return SQLAlchemyPlaceRepository(create_engine(actual_url, pool_pre_ping=True))
+    actual_path = Path(raw_path)
+    actual_path.parent.mkdir(parents=True, exist_ok=True)
+    url = f"sqlite:///{actual_path.resolve().as_posix()}"
+    engine = create_engine(url, pool_pre_ping=True, json_serializer=compact_json_dumps)
+    spatialite_enabled = create_sqlite_schema(engine)
+    return SQLAlchemyPlaceRepository(engine, spatialite_enabled=spatialite_enabled)
 
 
 def _with_service_application_urls(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -299,6 +336,10 @@ def _place_filters(
     service_slug: str | None,
     category: str | None,
     is_open: bool | None,
+    detail_status_code: str | None,
+    business_type_name: str | None,
+    subtype_name: str | None,
+    sales_method_name: str | None,
 ) -> list[Any]:
     filters: list[Any] = []
     if service_slug:
@@ -307,6 +348,14 @@ def _place_filters(
         filters.append(PlaceMaster.category == category)
     if is_open is not None:
         filters.append(PlaceMaster.is_open.is_(is_open))
+    if detail_status_code:
+        filters.append(PlaceMaster.detail_status_code == detail_status_code)
+    if business_type_name:
+        filters.append(PlaceMaster.business_type_name == business_type_name)
+    if subtype_name:
+        filters.append(PlaceMaster.subtype_name == subtype_name)
+    if sales_method_name:
+        filters.append(PlaceMaster.sales_method_name == sales_method_name)
     if q:
         pattern = f"%{q.strip()}%"
         filters.append(
@@ -315,6 +364,8 @@ def _place_filters(
                 PlaceMaster.road_address.ilike(pattern),
                 PlaceMaster.lot_address.ilike(pattern),
                 PlaceMaster.mng_no.ilike(pattern),
+                PlaceMaster.subtype_name.ilike(pattern),
+                PlaceMaster.business_type_name.ilike(pattern),
             )
         )
     return filters
@@ -332,14 +383,43 @@ def _place_summary(place: PlaceMaster) -> dict[str, Any]:
         "placeName": place.place_name,
         "statusCode": place.status_code,
         "statusName": place.status_name,
+        "detailStatusCode": place.detail_status_code,
+        "detailStatusName": place.detail_status_name,
         "isOpen": place.is_open,
         "licenseDate": _json_value(place.license_date),
+        "licenseCancelledDate": _json_value(place.license_cancelled_date),
         "closedDate": _json_value(place.closed_date),
+        "temporaryBusinessStartDate": _json_value(place.temporary_business_start_date),
+        "temporaryBusinessEndDate": _json_value(place.temporary_business_end_date),
+        "reopenDate": _json_value(place.reopen_date),
+        "dataUpdateType": place.data_update_type,
         "telno": place.telno,
         "roadAddress": place.road_address,
         "lotAddress": place.lot_address,
         "roadZip": place.road_zip,
         "lotZip": place.lot_zip,
+        "businessTypeName": place.business_type_name,
+        "subtypeName": place.subtype_name,
+        "multiUseBusinessPlaceYn": place.multi_use_business_place_yn,
+        "sanitationBusinessStatusName": place.sanitation_business_status_name,
+        "facilityTotalScale": place.facility_total_scale,
+        "waterSupplyFacilityTypeName": place.water_supply_facility_type_name,
+        "cultureSportsBusinessTypeName": place.culture_sports_business_type_name,
+        "salesMethodName": place.sales_method_name,
+        "designationDate": _json_value(place.designation_date),
+        "buildingOwnershipTypeName": place.building_ownership_type_name,
+        "buildingUsageName": place.building_usage_name,
+        "groundFloorCount": place.ground_floor_count,
+        "undergroundFloorCount": place.underground_floor_count,
+        "totalFloorCount": place.total_floor_count,
+        "facilityArea": place.facility_area,
+        "totalArea": place.total_area,
+        "sickbedCount": place.sickbed_count,
+        "bedCount": place.bed_count,
+        "healthcareWorkerCount": place.healthcare_worker_count,
+        "hospitalRoomCount": place.hospital_room_count,
+        "medicalInstitutionTypeName": place.medical_institution_type_name,
+        "medicalSubjectNames": place.medical_subject_names,
         "legalDongCode": place.legal_dong_code,
         "roadNameCode": place.road_name_code,
         "buildingManagementNumber": place.building_management_number,
@@ -351,6 +431,66 @@ def _place_summary(place: PlaceMaster) -> dict[str, Any]:
         "sourceModifiedAt": _json_value(place.source_modified_at),
         "updatedAt": _json_value(place.updated_at),
     }
+
+
+def _record_data(place: PlaceMaster, detail: PlaceDetail | None) -> dict[str, Any]:
+    promoted = {
+        "MNG_NO": place.mng_no,
+        "OPN_ATMY_GRP_CD": place.opn_authority_code,
+        "LCPMT_YMD": _json_value(place.license_date),
+        "LCPMT_RTRCN_YMD": _json_value(place.license_cancelled_date),
+        "CLSBIZ_YMD": _json_value(place.closed_date),
+        "SALS_STTS_CD": place.status_code,
+        "SALS_STTS_NM": place.status_name,
+        "DTL_SALS_STTS_CD": place.detail_status_code,
+        "DTL_SALS_STTS_NM": place.detail_status_name,
+        "BPLC_NM": place.place_name,
+        "BZSTAT_SE_NM": place.business_type_name,
+        "TELNO": place.telno,
+        "LOTNO_ADDR": place.lot_address,
+        "ROAD_NM_ADDR": place.road_address,
+        "ROAD_NM_ZIP": place.road_zip,
+        "LCTN_ZIP": place.lot_zip,
+        "LCTN_AREA": place.total_area,
+        "LAST_MDFCN_PNT": _json_value(place.source_modified_at),
+        "DAT_UPDT_SE": place.data_update_type,
+        "DAT_UPDT_PNT": _json_value(place.data_updated_at),
+        "CRD_INFO_X": place.source_x,
+        "CRD_INFO_Y": place.source_y,
+        "WGS84_LON": place.lon,
+        "WGS84_LAT": place.lat,
+        "TCBIZ_BGNG_YMD": _json_value(place.temporary_business_start_date),
+        "TCBIZ_END_YMD": _json_value(place.temporary_business_end_date),
+        "ROBIZ_YMD": _json_value(place.reopen_date),
+        "MLT_UTZTN_BSNSSP_YN": place.multi_use_business_place_yn,
+        "SNTTN_BZSTAT_NM": place.sanitation_business_status_name,
+        "FCLT_TOTAL_SCL": place.facility_total_scale,
+        "WTRSPPL_FCLT_SE_NM": place.water_supply_facility_type_name,
+        "CULTR_SPTS_TPBIZ_NM": place.culture_sports_business_type_name,
+        "NTSL_MTH_NM": place.sales_method_name,
+        "DSGN_YMD": _json_value(place.designation_date),
+        "BLDG_PSN_SE_NM": place.building_ownership_type_name,
+        "BLDG_USG_NM": place.building_usage_name,
+        "GRND_NOFL": place.ground_floor_count,
+        "UDGD_NOFL": place.underground_floor_count,
+        "TOTAL_NOFL": place.total_floor_count,
+        "FCAR": place.facility_area,
+        "TOT_AR": place.total_area,
+        "SCKBD_CNT": place.sickbed_count,
+        "BED_CNT": place.bed_count,
+        "HCWKR_CNT": place.healthcare_worker_count,
+        "HSPTLZRM_CNT": place.hospital_room_count,
+        "MDLCR_INST_BTP_NM": place.medical_institution_type_name,
+        "MDEXM_SBJCT_CN_NM": place.medical_subject_names,
+        "LEGAL_DONG_CD": place.legal_dong_code,
+        "RN_MGT_SN": place.road_name_code,
+        "BD_MGT_SN": place.building_management_number,
+        "ROAD_NM_EMD_NO": place.road_name_emd_no,
+    }
+    compact_promoted = {key: value for key, value in promoted.items() if value is not None}
+    if detail is None:
+        return compact_promoted
+    return {**compact_promoted, **detail.specific_data}
 
 
 def _scalar_int(session: Session, statement: Any) -> int:
@@ -374,7 +514,7 @@ def _name_from_title(title: str | None, fallback: str) -> str:
 def _db_not_configured() -> HTTPException:
     return HTTPException(
         status_code=503,
-        detail="MOIS_DATABASE_URL이 설정되지 않았습니다.",
+        detail="MOIS_SQLITE_PATH가 설정되지 않았습니다.",
     )
 
 

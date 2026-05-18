@@ -25,9 +25,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "GeoAlchemy2>=0.15",
   "pydantic>=2.7",
-  "psycopg[binary]>=3.1",
   "requests>=2.31",
   "pyproj>=3.6",
   "SQLAlchemy>=2.0",

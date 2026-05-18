@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from .catalog import RESPONSE_FIELDS
@@ -22,6 +23,28 @@ HEADER_ALIASES: dict[str, str] = {
 }
 
 
+def _build_header_field_map() -> dict[object, object]:
+    field_map: dict[object, object] = {}
+    for row in RESPONSE_FIELDS:
+        if row.get("deleted"):
+            continue
+        field = row.get("field")
+        if not field:
+            continue
+        for header in (row.get("name"), row.get("local_name")):
+            if header:
+                field_map.setdefault(header, field)
+    return field_map
+
+
+NUMBER_FIELDS = frozenset(
+    str(row["field"])
+    for row in RESPONSE_FIELDS
+    if row.get("field") and str(row.get("type") or "").upper() == "NUMBER"
+)
+HEADER_FIELD_MAP = _build_header_field_map()
+
+
 def strip_or_none(value: object) -> str | None:
     """빈 문자열과 공백을 `None`으로 정규화합니다."""
 
@@ -31,16 +54,14 @@ def strip_or_none(value: object) -> str | None:
     return text or None
 
 
+@lru_cache(maxsize=2048)
 def field_for_header(header: str) -> str:
     """localdata CSV 한글 헤더를 공공데이터포털 응답변수명으로 매핑합니다."""
 
     if header in HEADER_ALIASES:
         return HEADER_ALIASES[header]
-    for row in RESPONSE_FIELDS:
-        if row.get("deleted"):
-            continue
-        if header in {row.get("name"), row.get("local_name")} and row.get("field"):
-            return str(row["field"])
+    if header in HEADER_FIELD_MAP:
+        return str(HEADER_FIELD_MAP[header])
     return _fallback_header_name(header)
 
 
@@ -131,9 +152,8 @@ def _is_datetime_field(field: str, header: str) -> bool:
 def _is_numeric_field(field: str, header: str) -> bool:
     if field in {"CRD_INFO_X", "CRD_INFO_Y"}:
         return True
-    for row in RESPONSE_FIELDS:
-        if row.get("field") == field and str(row.get("type") or "").upper() == "NUMBER":
-            return True
+    if field in NUMBER_FIELDS:
+        return True
     numeric_words = ("면적", "수", "좌표", "높이", "길이", "거리", "금액", "연면적")
     return any(word in header for word in numeric_words)
 

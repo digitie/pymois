@@ -6,7 +6,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apps.db_browser.backend import load_postgis  # noqa: E402
+from apps.db_browser.backend import load_sqlite  # noqa: E402
 from apps.db_browser.backend.app import create_app  # noqa: E402
 from mois.files import iter_records_from_bytes  # noqa: E402
 
@@ -52,9 +52,17 @@ class FakeRepository:
         service_slug: str | None,
         category: str | None,
         is_open: bool | None,
+        detail_status_code: str | None,
+        business_type_name: str | None,
+        subtype_name: str | None,
+        sales_method_name: str | None,
         limit: int,
         offset: int,
     ) -> dict[str, object]:
+        assert detail_status_code is None
+        assert business_type_name is None
+        assert subtype_name is None
+        assert sales_method_name is None
         return {
             "items": [
                 {
@@ -112,19 +120,19 @@ def test_db_browser_api_with_fake_repository() -> None:
     assert client.get("/api/places/22222222-2222-2222-2222-222222222222").status_code == 404
 
 
-def test_db_browser_api_without_database_url_returns_503(
+def test_db_browser_api_without_database_path_returns_503(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("MOIS_DATABASE_URL", raising=False)
-    client = TestClient(create_app(database_url=None, repository=None))
+    monkeypatch.delenv("MOIS_SQLITE_PATH", raising=False)
+    client = TestClient(create_app(database_path=None, repository=None))
 
     response = client.get("/api/stats")
 
     assert response.status_code == 503
-    assert "MOIS_DATABASE_URL" in response.json()["detail"]
+    assert "MOIS_SQLITE_PATH" in response.json()["detail"]
 
 
-def test_load_records_to_postgis_commits_by_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_records_to_sqlite_commits_by_batch(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeSession:
         commits = 0
 
@@ -136,17 +144,17 @@ def test_load_records_to_postgis_commits_by_batch(monkeypatch: pytest.MonkeyPatc
     def fake_bulk_upsert(session: object, records: list[object]) -> None:
         batch_sizes.append(len(records))
 
-    monkeypatch.setattr(load_postgis, "_bulk_upsert_places", fake_bulk_upsert)
+    monkeypatch.setattr(load_sqlite, "_bulk_upsert_places", fake_bulk_upsert)
     session = FakeSession()
     records = iter_records_from_bytes(CSV_TEXT.encode("cp949"), slug="hospitals")
 
-    count = load_postgis.load_records_to_postgis(session, records, batch_size=1)
+    count = load_sqlite.load_records_to_sqlite(session, records, batch_size=1)
 
     assert count == 2
     assert session.commits == 2
     assert batch_sizes == [1, 1]
 
 
-def test_load_records_to_postgis_rejects_invalid_batch_size() -> None:
+def test_load_records_to_sqlite_rejects_invalid_batch_size() -> None:
     with pytest.raises(ValueError, match="batch_size"):
-        load_postgis.load_records_to_postgis(object(), [], batch_size=0)  # type: ignore[arg-type]
+        load_sqlite.load_records_to_sqlite(object(), [], batch_size=0)  # type: ignore[arg-type]

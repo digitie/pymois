@@ -2,7 +2,7 @@
 
 `python-mois-api`는 행정안전부 지방행정 인허가정보를 Python에서 다루기 위한 라이브러리입니다. 설치 패키지 이름은 `python-mois-api`, import 패키지 이름은 `mois`입니다.
 
-공공데이터포털 공지 `[행정안전부] 지방행정 인허가정보 Open API 호출 관련 참고자료 제공 (수정)`의 붙임1, 붙임2, 붙임3을 기준으로 195개 업종의 조회/이력조회 OpenAPI를 모두 카탈로그화했고, `file.localdata.go.kr`의 인허가정보 파일 다운로드 195종도 같은 slug로 사용할 수 있게 했습니다.
+공공데이터포털 공지 `[행정안전부] 지방행정 인허가정보 Open API 호출 관련 참고자료 제공 (수정)`의 붙임1, 붙임2, 붙임3을 기준으로 195개 업종의 조회/이력조회 OpenAPI를 카탈로그화했고, `file.localdata.go.kr`의 인허가정보 파일 다운로드 195종도 같은 slug로 사용할 수 있게 했습니다.
 
 ## 주요 기능
 
@@ -10,13 +10,12 @@
 - 195개 업종 증분조회 편의 함수와 공공데이터포털 활용신청 링크 제공
 - `cond[필드::연산자]` 조건 파라미터 지원
 - API, 파일 다운로드, 응답변수 목록을 코드에서 조회
-- localdata CSV 다운로드와 Python 객체 리스트 로드
-- CP949 CSV, 날짜/시각, 숫자, EPSG:5174 좌표를 자동 변환
+- localdata CSV 다운로드와 Python 객체 스트리밍 로드
+- CP949 CSV, 날짜/시각, 숫자, EPSG:5174 좌표 자동 변환
 - EPSG:5174 좌표를 WGS84 `(lon, lat)`로 변환하고 좌표 값 객체 제공
-- OpenAPI/파일/조건/좌표계 enum과 타입 별칭 제공
-- Pydantic, SQLAlchemy 2, GeoAlchemy2 기반 PostgreSQL/PostGIS 적재 모델 제공
-- 디버그 UI에서 저장한 fixture JSON을 외부 호출 없이 replay하는 pytest runner 구조 제공
-- 네트워크 없는 단위 테스트와 실제 호출용 live 테스트 분리 가능
+- SQLite/SpatiaLite 기반 로컬 DB 적재 모델과 DB 브라우저 서버 제공
+- 디버그 fixture JSON을 외부 호출 없이 replay하는 pytest runner 구조 제공
+- 네트워크 없는 단위 테스트와 실제 호출용 live 테스트 분리
 
 ## 설치
 
@@ -27,7 +26,7 @@ pip install python-mois-api
 개발 중인 저장소에서는 다음처럼 설치합니다.
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,web]"
 ```
 
 ## OpenAPI 사용
@@ -38,7 +37,6 @@ pip install -e ".[dev]"
 from mois import MoisClient
 
 client = MoisClient("공공데이터포털_서비스키")
-
 items = client.get(
     "hospitals",
     conditions={"DAT_UPDT_PNT": ("GTE", "20260301000000")},
@@ -46,18 +44,6 @@ items = client.get(
 
 for item in items:
     print(item["MNG_NO"], item.get("BPLC_NM"))
-```
-
-동적 편의 함수도 제공합니다.
-
-```python
-items = client.get_hospitals()
-history = client.get_hospitals_history(
-    conditions={
-        "BASE_DATE": "20260101",
-        "OPN_ATMY_GRP_CD": "3000000",
-    }
-)
 ```
 
 증분 동기화와 특정 시점 이력조회는 별도 편의 메서드를 사용할 수 있습니다.
@@ -70,28 +56,8 @@ changed = client.get_updated(
     "hospitals",
     datetime(2026, 5, 5, 0, 0, 0, tzinfo=ZoneInfo("Asia/Seoul")),
 )
-
-source_changed = client.get_updated(
-    "hospitals",
-    "20260505000000",
-    source_modified=True,
-)
-
-history_at = client.get_history_at(
-    "hospitals",
-    "20260101",
-    org_code="3000000",
-)
-```
-
-업종별 증분 편의 함수도 동적으로 제공합니다.
-
-```python
-changed = client.get_updated_hospitals("20260505000000")
-source_changed = client.get_updated_hospitals(
-    "20260505000000",
-    source_modified=True,
-)
+source_changed = client.get_updated("hospitals", "20260505000000", source_modified=True)
+history_at = client.get_history_at("hospitals", "20260101", org_code="3000000")
 ```
 
 환경변수도 사용할 수 있습니다.
@@ -117,7 +83,6 @@ print(first.business_name)
 print(first.license_date)
 print(first.updated_at)
 print(first.coordinates.lon, first.coordinates.lat)
-print(first.coordinates.wgs84_point.as_tuple())  # (lon, lat)
 ```
 
 대용량 업종은 전체 목록을 만들지 않는 스트리밍 API를 사용합니다.
@@ -129,31 +94,18 @@ for record in files.iter_hospitals():
 
 CSV 원본의 `좌표정보(X)`, `좌표정보(Y)`는 EPSG:5174로 보존하고, `WGS84_LON`, `WGS84_LAT`와 `Coordinate` 객체를 추가합니다. 좌표 순서는 KATEC가 `(x, y)`, WGS84가 `(lon, lat)`입니다.
 
-```python
-from mois import KatecPoint, Wgs84Point
+## SQLite/SpatiaLite DB 적재
 
-katec = KatecPoint(first.coordinates.katec_x, first.coordinates.katec_y)
-wgs84 = Wgs84Point(first.coordinates.lon, first.coordinates.lat)
-```
-
-지역별 파일은 localdata의 `orgCode`를 그대로 전달합니다.
-
-```python
-records = files.load("hospitals", org_code="3000000")  # 서울종로구
-```
-
-## DB 적재
-
-PostgreSQL/PostGIS에 저장할 때는 공통 검색 필드를 마스터 테이블에, 업종별 특수 필드를 JSONB 상세 테이블에 분리합니다.
+공통 검색 필드와 반복 필터가 되는 JSON 필드는 `mois_place_master`에, 나머지 업종별 특수 필드는 `mois_place_detail`의 SQLite JSON 컬럼에 저장합니다. 195개 다운로드 파일 12,046,780건을 다시 훑어 상세 영업상태, 업태/세부업종, 판매 방식, 의료·숙박 규모 필드를 컬럼으로 승격했습니다.
 
 ```python
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from mois import LocalDataFileClient, create_postgis_schema, upsert_places
+from mois import LocalDataFileClient, create_sqlite_schema, upsert_places
 
-engine = create_engine("postgresql+psycopg://user:password@localhost:5432/mois")
-create_postgis_schema(engine)
+engine = create_engine("sqlite:///artifacts/mois.sqlite")
+create_sqlite_schema(engine)
 
 records = LocalDataFileClient().load_hospitals()
 
@@ -161,51 +113,32 @@ with Session(engine) as session:
     upsert_places(session, records, commit=True)
 ```
 
-## 디버그 fixture 구조
+이미 내려받은 195개 파일을 모두 적재하려면 운영 스크립트를 사용합니다.
 
-디버그 UI는 React/FastAPI 소스를 그대로 사용하되, 라이브러리 wheel에는 포함하지 않습니다. 라이브러리 패키지에는 OpenAPI 실행을 디버깅하고 fixture로 저장하기 위한 `mois.parser`, `mois.processor`, `mois.debug`, `mois.fixtures` 모듈만 포함합니다.
-
-```python
-from mois import MoisClient, save_debug_fixture
-
-client = MoisClient("공공데이터포털_서비스키")
-debug_run = client.debug_request("hospitals", num_of_rows=1)
-
-save_debug_fixture(
-    debug_run,
-    base_dir="tests/fixtures",
-    case_name="hospitals_normal",
-    description="병원 정상 조회 케이스",
-)
+```powershell
+$env:MOIS_SQLITE_PATH = "F:\dev\pykrmois\artifacts\mois.sqlite"
+python -m tools.load_all_localdata_to_sqlite --output-dir artifacts/localdata --replace-slug
 ```
 
-저장된 fixture는 `tests/test_generated_fixtures.py`에서 자동으로 replay됩니다. replay 테스트는 저장된 raw response를 다시 파싱하고 가공 결과를 비교하므로 기본 테스트에서 외부 API를 호출하지 않습니다.
+## DB 브라우저
 
-## 목록 확인
-
-API 종류가 많기 때문에 목록 확인 함수를 별도로 제공합니다. `application_url`은 공공데이터포털 활용신청 페이지입니다.
-
-```python
-from mois import (
-    list_file_downloads,
-    list_incremental_openapi_endpoints,
-    list_openapi_endpoints,
-    list_openapi_services,
-)
-
-services = list_openapi_services()
-incremental = list_incremental_openapi_endpoints()
-history_urls = list_openapi_endpoints(kind="history")
-downloads = list_file_downloads()
+```powershell
+$env:MOIS_SQLITE_PATH = "F:\dev\pykrmois\artifacts\mois.sqlite"
+$env:MOIS_WEB_PORT = "8000"
+$env:PYTHONPATH = "src"
+python -m apps.db_browser.backend
 ```
 
-문서 목록:
+기본 API는 `http://127.0.0.1:8000/api`입니다. 프론트엔드는 `apps/db_browser/frontend`의 Vite 앱입니다.
+
+## 문서 목록
 
 - [API 및 파일 다운로드 목록](docs/api-list.md)
 - [증분 OpenAPI 목록과 신청 링크](docs/incremental-openapi.md)
 - [파일 다운로드와 로드 API](docs/file-downloads.md)
 - [타입과 좌표 값 객체](docs/types-and-coordinates.md)
-- [PostgreSQL/PostGIS DB 적재](docs/database.md)
+- [SQLite/SpatiaLite DB 적재](docs/database.md)
+- [DB 구조 정리](docs/db-structure.md)
 - [DB 브라우저 웹앱](docs/db-browser.md)
 - [응답변수 매핑표](docs/response-fields.md)
 - [관광 관련 인허가 데이터 선별 목록](docs/tourism-license-data.md)

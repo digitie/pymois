@@ -1,4 +1,4 @@
-"""전체 localdata 인허가 파일을 저장하고 PostGIS에 적재하는 운영 스크립트."""
+"""전체 localdata 인허가 파일을 저장하고 SQLite/SpatiaLite DB에 적재하는 운영 스크립트."""
 
 from __future__ import annotations
 
@@ -18,13 +18,19 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from apps.db_browser.backend.load_postgis import delete_slug, load_records_to_postgis  # noqa: E402
+from apps.db_browser.backend.load_sqlite import (  # noqa: E402
+    delete_slug,
+    load_records_to_sqlite,
+    sqlite_url,
+)
 from mois import (  # noqa: E402
     FileDownload,
     LocalDataFileClient,
     LocalDataRecord,
-    create_postgis_schema,
+    compact_json_dumps,
+    create_sqlite_schema,
     list_file_downloads,
+    refresh_spatial_geometries,
 )
 from mois.files import iter_records_from_binary  # noqa: E402
 
@@ -33,17 +39,17 @@ def main() -> None:
     """명령행 진입점."""
 
     parser = argparse.ArgumentParser(
-        description="전체 localdata 인허가 파일을 로컬에 저장하고 PostGIS DB에 적재합니다.",
+        description="전체 localdata 인허가 파일을 로컬에 저장하고 SQLite DB에 적재합니다.",
     )
     parser.add_argument(
-        "--database-url",
-        default=os.getenv("MOIS_DATABASE_URL"),
-        help="SQLAlchemy DB URL. 기본값은 MOIS_DATABASE_URL 환경변수입니다.",
+        "--database-path",
+        default=os.getenv("MOIS_SQLITE_PATH", "artifacts/mois.sqlite"),
+        help="SQLite DB 파일 경로. 기본값은 MOIS_SQLITE_PATH 또는 artifacts/mois.sqlite입니다.",
     )
     parser.add_argument("--output-dir", default="artifacts/localdata", help="원본 파일 저장 경로")
     parser.add_argument(
         "--progress-path",
-        default="artifacts/load_all_localdata_progress.jsonl",
+        default="artifacts/load_all_localdata_sqlite_progress.jsonl",
         help="진행 상황 JSONL 로그 경로",
     )
     parser.add_argument("--batch-size", type=int, default=1000, help="DB 커밋 배치 크기")
@@ -69,14 +75,16 @@ def main() -> None:
         help="원본 파일만 저장하고 DB 적재 생략",
     )
     parser.add_argument(
-        "--skip-create-extension",
+        "--skip-spatialite",
         action="store_true",
-        help="PostGIS 확장 생성 권한이 없을 때 사용",
+        help="SpatiaLite 확장 로드를 건너뛰고 일반 SQLite 컬럼만 사용",
+    )
+    parser.add_argument(
+        "--skip-refresh-geometry",
+        action="store_true",
+        help="전체 적재 후 SpatiaLite geometry 갱신을 생략",
     )
     args = parser.parse_args()
-
-    if not args.download_only and not args.database_url:
-        parser.error("--database-url 또는 MOIS_DATABASE_URL이 필요합니다")
 
     downloads = _select_downloads(
         list_file_downloads(),
@@ -91,8 +99,17 @@ def main() -> None:
 
     engine = None
     if not args.download_only:
-        engine = create_engine(args.database_url, pool_pre_ping=True)
-        create_postgis_schema(engine, create_extension=not args.skip_create_extension)
+        engine = create_engine(
+            sqlite_url(args.database_path),
+            pool_pre_ping=True,
+            json_serializer=compact_json_dumps,
+        )
+        spatialite_enabled = create_sqlite_schema(
+            engine,
+            load_spatialite=not args.skip_spatialite,
+        )
+    else:
+        spatialite_enabled = False
     client = LocalDataFileClient(timeout=args.timeout)
 
     failures: list[dict[str, str]] = []
@@ -102,6 +119,8 @@ def main() -> None:
         "run_start",
         total=len(downloads),
         output_dir=str(output_dir),
+        database_path=str(args.database_path),
+        spatialite_enabled=spatialite_enabled,
     )
     for index, download in enumerate(downloads, start=1):
         try:
@@ -139,6 +158,11 @@ def main() -> None:
             if not args.continue_on_error:
                 raise
 
+    if engine is not None and not args.skip_refresh_geometry:
+        _write_progress(progress_path, "refresh_geometry_start")
+        refresh_spatial_geometries(engine)
+        _write_progress(progress_path, "refresh_geometry_complete")
+
     _write_progress(
         progress_path,
         "run_complete",
@@ -152,6 +176,8 @@ def main() -> None:
                 "total": len(downloads),
                 "total_loaded": total_loaded,
                 "failures": failures,
+                "database_path": str(args.database_path),
+                "spatialite_enabled": spatialite_enabled,
             },
             ensure_ascii=False,
         )
@@ -221,7 +247,7 @@ def _download_and_load_one(
     counter = {"count": 0}
     with path.open("rb") as source, Session(engine) as session:
         records = iter_records_from_binary(source, slug=download.slug)
-        loaded = load_records_to_postgis(
+        loaded = load_records_to_sqlite(
             session,
             _with_progress(records, progress_path, download.slug, progress_every, counter),
             batch_size=batch_size,
