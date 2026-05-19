@@ -19,16 +19,32 @@
 ```python
 from mois import MoisClient, list_incremental_openapi_endpoints
 
-client = MoisClient.from_env()
-
-changed = client.get_updated_hospitals("20260505000000")
-source_changed = client.get_updated_hospitals(
-    "20260505000000",
-    source_modified=True,
-)
+with MoisClient.from_env() as client:
+    changed = client.get_updated_hospitals("20260505000000")
+    source_changed = client.get_updated_hospitals(
+        "20260505000000",
+        source_modified=True,
+    )
 
 for api in list_incremental_openapi_endpoints():
     print(api.service_slug, api.application_url, api.get_method)
+```
+
+비동기 배치에서는 `MoisClient.aio()`를 사용합니다.
+
+```python
+import asyncio
+
+from mois import MoisClient
+
+
+async def main():
+    async with MoisClient.aio() as client:
+        changed = await client.get_updated_hospitals("20260505000000")
+        print(len(changed))
+
+
+asyncio.run(main())
 ```
 
 ## 전체 증분 API 목록

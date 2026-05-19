@@ -1,6 +1,6 @@
 # 테스트 기준
 
-기본 테스트는 네트워크를 사용하지 않습니다. 공공데이터포털과 localdata는 인증키, 호출 제한, 파일 크기, 세션 쿠키의 영향을 받기 때문에 기본 단위 테스트에서는 가짜 세션과 fixture CSV만 사용합니다.
+기본 테스트는 네트워크를 사용하지 않습니다. 공공데이터포털과 localdata는 인증키, 호출 제한, 파일 크기, 세션 쿠키의 영향을 받기 때문에 기본 단위 테스트에서는 가짜 httpx transport와 fixture CSV만 사용합니다.
 
 ## 기본 실행
 
@@ -18,12 +18,13 @@ python -m mypy src/mois
 - OpenAPI 요청 파라미터: `cond[FIELD::OP]` 생성
 - 증분/이력 편의 메서드: `DAT_UPDT_PNT`, `LAST_MDFCN_PNT`, `BASE_DATE`, `OPN_ATMY_GRP_CD`
 - JSON/XML 응답 파싱과 resultCode 예외 매핑
+- httpx 기반 동기/asyncio 클라이언트와 `MoisClient.aio()`, `LocalDataFileClient.aio()` 흐름
 - 디버그 UI fixture replay: `tests/fixtures/**/*.json`을 공통 runner로 읽어 파싱/가공 결과 비교
 - localdata CSV 로드: CP949, 날짜, KST 시각, 숫자, 좌표 변환
 - 좌표 값 객체: `KatecPoint(x, y)`, `Wgs84Point(lon, lat)`, `StationCoordinates` 호환 별칭
 - 동적 편의 함수: `get_hospitals()`, `get_updated_hospitals()`, `load_hospitals()` 계열
 - DB 적재 모델: Pydantic 변환, SQLAlchemy 2 메타데이터, SQLite JSON 상세 데이터, WKT 좌표 저장
-- 전체 인허가 다운로드/DB 준비 경로: 195개 파일 다운로드 카탈로그 전체를 가짜 세션으로 다운로드, 파싱, `PlaceRecord`, ORM 객체까지 생성
+- 전체 인허가 다운로드/DB 준비 경로: 195개 파일 다운로드 카탈로그 전체를 가짜 transport로 다운로드, 파싱, `PlaceRecord`, ORM 객체까지 생성
 
 ## 실제 호출 테스트를 추가할 때
 
@@ -45,6 +46,28 @@ def test_live_hospitals_first_page():
 ```
 
 live 테스트는 CI 기본 경로에 넣지 않습니다. 호출 제한과 인증키 상태가 테스트 결과를 흔들 수 있기 때문입니다.
+
+비동기 live 테스트도 같은 기준을 적용합니다.
+
+```python
+import asyncio
+import os
+import pytest
+from mois import MoisClient
+
+@pytest.mark.live
+def test_live_hospitals_first_page_async():
+    key = os.getenv("MOIS_SERVICE_KEY")
+    if not key:
+        pytest.skip("MOIS_SERVICE_KEY가 없습니다")
+
+    async def run():
+        async with MoisClient.aio(key) as client:
+            rows = await client.get_hospitals(num_of_rows=1)
+            assert isinstance(rows, list)
+
+    asyncio.run(run())
+```
 
 ## 디버그 UI fixture replay
 

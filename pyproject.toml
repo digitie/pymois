@@ -25,8 +25,8 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "httpx>=0.28",
   "pydantic>=2.7",
-  "requests>=2.31",
   "pyproj>=3.6",
   "SQLAlchemy>=2.0",
 ]
@@ -34,14 +34,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8",
-  "responses>=0.25",
   "ruff>=0.5",
   "mypy>=1.10",
-  "types-requests>=2.31",
 ]
 web = [
   "fastapi>=0.115",
-  "httpx>=0.28",
   "uvicorn[standard]>=0.30",
 ]
 

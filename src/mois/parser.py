@@ -12,7 +12,7 @@ from .models import MoisResponse
 
 
 def parse_openapi_response(response: Any, *, page_no: int, num_of_rows: int) -> MoisResponse:
-    """requests 응답 객체를 JSON/XML 형식에 맞춰 파싱합니다."""
+    """HTTP 응답 객체를 JSON/XML 형식에 맞춰 파싱합니다."""
 
     headers = getattr(response, "headers", {}) or {}
     content_type = str(

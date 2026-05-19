@@ -120,8 +120,8 @@ from mois import LocalDataFileClient, create_sqlite_schema, upsert_place
 engine = create_engine("sqlite:///artifacts/mois.sqlite")
 create_sqlite_schema(engine)
 
-with Session(engine) as session:
-    for record in LocalDataFileClient().iter_hospitals():
+with LocalDataFileClient() as files, Session(engine) as session:
+    for record in files.iter_hospitals():
         upsert_place(session, record)
     session.commit()
 ```

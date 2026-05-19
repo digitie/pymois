@@ -7,6 +7,7 @@
 ## 주요 기능
 
 - 195개 업종 OpenAPI 조회와 이력조회 호출
+- httpx 기반 동기/asyncio 클라이언트(`MoisClient`, `MoisClient.aio()`)
 - 195개 업종 증분조회 편의 함수와 공공데이터포털 활용신청 링크 제공
 - `cond[필드::연산자]` 조건 파라미터 지원
 - API, 파일 다운로드, 응답변수 목록을 코드에서 조회
@@ -34,16 +35,35 @@ pip install -e ".[dev,web]"
 공공데이터포털에서 지방행정 인허가정보 API 활용신청 후 받은 디코딩 서비스키를 사용합니다.
 
 ```python
-from mois import MoisClient
+from mois import MoisClient, PROVIDER_NAME
 
-client = MoisClient("공공데이터포털_서비스키")
-items = client.get(
-    "hospitals",
-    conditions={"DAT_UPDT_PNT": ("GTE", "20260301000000")},
-)
+print(PROVIDER_NAME)  # python-krmois-api
+
+with MoisClient(api_key="공공데이터포털_서비스키") as client:
+    items = client.get(
+        "hospitals",
+        conditions={"DAT_UPDT_PNT": ("GTE", "20260301000000")},
+    )
 
 for item in items:
     print(item["MNG_NO"], item.get("BPLC_NM"))
+```
+
+비동기 호출은 `python-krheritage-api`와 같은 형태로 `aio()`를 사용합니다.
+
+```python
+import asyncio
+
+from mois import MoisClient
+
+
+async def main():
+    async with MoisClient.aio(api_key="공공데이터포털_서비스키") as client:
+        items = await client.get_hospitals(num_of_rows=10)
+        print(items[0].get("BPLC_NM"))
+
+
+asyncio.run(main())
 ```
 
 증분 동기화와 특정 시점 이력조회는 별도 편의 메서드를 사용할 수 있습니다.
@@ -52,12 +72,13 @@ for item in items:
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-changed = client.get_updated(
-    "hospitals",
-    datetime(2026, 5, 5, 0, 0, 0, tzinfo=ZoneInfo("Asia/Seoul")),
-)
-source_changed = client.get_updated("hospitals", "20260505000000", source_modified=True)
-history_at = client.get_history_at("hospitals", "20260101", org_code="3000000")
+with MoisClient.from_env() as client:
+    changed = client.get_updated(
+        "hospitals",
+        datetime(2026, 5, 5, 0, 0, 0, tzinfo=ZoneInfo("Asia/Seoul")),
+    )
+    source_changed = client.get_updated("hospitals", "20260505000000", source_modified=True)
+    history_at = client.get_history_at("hospitals", "20260101", org_code="3000000")
 ```
 
 환경변수도 사용할 수 있습니다.
@@ -75,8 +96,8 @@ client = MoisClient.from_env()
 ```python
 from mois import LocalDataFileClient
 
-files = LocalDataFileClient()
-records = files.load("hospitals")
+with LocalDataFileClient() as files:
+    records = files.load("hospitals")
 
 first = records[0]
 print(first.business_name)
@@ -88,8 +109,27 @@ print(first.coordinates.lon, first.coordinates.lat)
 대용량 업종은 전체 목록을 만들지 않는 스트리밍 API를 사용합니다.
 
 ```python
-for record in files.iter_hospitals():
-    print(record.management_number, record.business_name)
+with LocalDataFileClient() as files:
+    for record in files.iter_hospitals():
+        print(record.management_number, record.business_name)
+```
+
+파일 다운로드도 async 클라이언트를 제공합니다.
+
+```python
+import asyncio
+
+from mois import LocalDataFileClient
+
+
+async def main():
+    async with LocalDataFileClient.aio() as files:
+        async for record in files.iter_hospitals():
+            print(record.management_number, record.business_name)
+            break
+
+
+asyncio.run(main())
 ```
 
 CSV 원본의 `좌표정보(X)`, `좌표정보(Y)`는 EPSG:5174로 보존하고, `WGS84_LON`, `WGS84_LAT`와 `Coordinate` 객체를 추가합니다. 좌표 순서는 KATEC가 `(x, y)`, WGS84가 `(lon, lat)`입니다.
@@ -107,7 +147,8 @@ from mois import LocalDataFileClient, create_sqlite_schema, upsert_places
 engine = create_engine("sqlite:///artifacts/mois.sqlite")
 create_sqlite_schema(engine)
 
-records = LocalDataFileClient().load_hospitals()
+with LocalDataFileClient() as files:
+    records = files.load_hospitals()
 
 with Session(engine) as session:
     upsert_places(session, records, commit=True)

@@ -13,7 +13,7 @@ from .catalogs import (
     list_openapi_services,
     list_response_fields,
 )
-from .client import MoisClient
+from .client import AsyncMoisClient, MoisClient
 from .db import (
     Base,
     BatchSyncLog,
@@ -45,6 +45,7 @@ from .exceptions import (
     MoisServerError,
 )
 from .files import (
+    AsyncLocalDataFileClient,
     LocalDataFileClient,
     iter_records_from_binary,
     iter_records_from_bytes,
@@ -80,7 +81,12 @@ from .models import (
 from .parser import parse_openapi_payload, parse_openapi_response, parse_openapi_text
 from .processor import process_openapi_response
 
+PROVIDER_NAME = "python-krmois-api"
+
 __all__ = [
+    "PROVIDER_NAME",
+    "AsyncLocalDataFileClient",
+    "AsyncMoisClient",
     "BusinessStatusCategory",
     "Condition",
     "ConditionOperator",
